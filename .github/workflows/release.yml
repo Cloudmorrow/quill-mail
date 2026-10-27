@@ -1,0 +1,61 @@
+# A tag like v1.0.0 is a release: checked and tested once more, then
+# published, ready for its line in the Quill Catalog. Checked against the
+# datamodels on main, as check.yml says why.
+#
+# Three ways to start one: push a tag; publish a release on github.com,
+# which makes the tag; or run this workflow from the Actions tab (or the
+# API), which tags main with the version quill.toml says, once the checks
+# have passed, and releases it here.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDMORROW_DATAMODELS: .datamodels
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Started by hand, it is main that is released.
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: Cloudmorrow/datamodels
+          path: .datamodels
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run cm quill check . --datamodels .datamodels
+      - run: uv run cm quill test . --sandbox
+      - name: The tag, and that it is the version's
+        id: tag
+        # Started by hand: the tag is quill.toml's version, made here once the
+        # checks above have passed. A tag pushed from here starts no other
+        # workflow, so this run is the release.
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('quill.toml','rb'))['quill']['version'])")
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="v$version"
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              echo "$tag is released already: raise the version in quill.toml first"; exit 1
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "$tag: $(git log -1 --pretty=%s)"
+            git push origin "$tag"
+          else
+            tag="$GITHUB_REF_NAME"
+            test "v$version" = "$tag" || { echo "quill.toml says $version, the tag is $tag"; exit 1; }
+          fi
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
+      # A release made on github.com makes its tag, and the tag starts this:
+      # then the release is there already, and checking it was the work.
+      - run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.name }}

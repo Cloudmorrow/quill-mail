@@ -1,0 +1,16 @@
+# Where one person filed a thread: their own inbox, archive or trash. The
+# thread itself is everybody's; this line is theirs.
+
+[datamodel]
+id = "mail.state"
+version = 1
+label = "Filing"
+description = "Where somebody filed a thread: inbox, archive or trash."
+scopes = ["personal"]
+title = "thread"
+
+[fields]
+thread = { kind = "string", required = true, indexed = true }
+folder = { kind = "enum", values = ["inbox", "archive", "trash"], labels = ["Inbox", "Archive", "Trash"], default = "inbox", indexed = true }
+# The newest message when it was filed: one written since brings an archived thread back.
+last = { kind = "string" }

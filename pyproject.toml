@@ -1,0 +1,20 @@
+# For working on this Quill, not for installing it: a server installs the
+# folder, not a package. `uv sync` makes .venv with Cloudmorrow's server (for
+# the tests' harness) and pytest; `cm quill test` uses it.
+[project]
+name = "quill-mail"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "cloudmorrow[server,tui,agent] @ git+https://github.com/Cloudmorrow/cloudmorrow",
+    "pytest>=8",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

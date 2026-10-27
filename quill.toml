@@ -1,0 +1,129 @@
+# Mail: email for everybody on your server, and your own accounts outside it.
+# A conversation is a thread, a space shared with the people in it; what is
+# written in it reaches them as a push and counts as unread until they look.
+# Mail between people on the server never leaves it. An outside account
+# (Fastmail, or any JMAP server the manifest lets it reach) is read and
+# written through the provider's own HTTPS API, as you, from the sandbox:
+# nothing runs beside the server and nobody else's mail passes through
+# anybody else's code. See CLAUDE.md for the format and the loop.
+
+[quill]
+id = "mail"
+name = "Mail"
+version = "1.0.0"
+summary = "Email: write to anybody on your server, and read and send through your own Fastmail or JMAP account."
+category = "communication"
+icon = "envelope"
+publisher = "Cloudmorrow"
+license = "AGPL-3.0-or-later"
+code = "quill.py"
+features = [
+  "Write to anybody on the server by name: the mail stays on the server, and they get a push",
+  "Conversations as threads: a reply stays with what it answers, and what you have not read is counted",
+  "Inbox, Sent, Archive and Trash, each person's own: archiving a thread hides it for you alone",
+  "Add a Fastmail account (or another JMAP server the manifest names) with an API token: its inbox is fetched when you open Mail, and what you write to an outside address is sent through it",
+  "Everything sealed at rest; an account's token is a secret, shown to nobody",
+  "The same on the web and the phone, in the terminal and on the command line",
+]
+
+# Everything Mail keeps is its own: accounts, threads, messages and where each
+# person filed a thread. It uses no foundational datamodel.
+[uses]
+datamodels = []
+
+# -- screens -------------------------------------------------------------------------
+# The mail: a folder's threads, or one thread open with its messages and a
+# reply box. ?folder= is inbox, sent, archive or trash; ?thread= opens one.
+[[screens]]
+id = "mail"
+icon = "envelope"
+label = "Mail"
+view = "mail"
+model = "mail.thread"
+
+# The accounts outside the server, and how the last fetch went.
+[[screens]]
+id = "accounts"
+icon = "key"
+label = "Accounts"
+view = "accounts"
+model = "mail.account"
+
+# -- actions -------------------------------------------------------------------------
+[[actions]]
+id = "write"
+label = "Write"
+tone = "primary"
+description = "A new mail: to people on this server by name, or to outside addresses through your account."
+[actions.fields]
+to = { kind = "string", required = true, description = "Names on this server, or email addresses, with commas between" }
+cc = { kind = "string", label = "Cc", description = "More of the same, copied in" }
+subject = { kind = "string", required = true }
+body = { kind = "text", required = true }
+
+[[actions]]
+id = "reply"
+label = "Reply"
+on = "mail.thread"
+tone = "primary"
+description = "Answers in this thread: everybody in it reads it, and an outside address gets it through your account."
+[actions.fields]
+body = { kind = "text", required = true }
+
+[[actions]]
+id = "archive"
+label = "Archive"
+on = "mail.thread"
+description = "Takes the thread out of your inbox; it stays in Archive, and comes back when somebody writes."
+
+[[actions]]
+id = "trash"
+label = "Delete"
+on = "mail.thread"
+tone = "danger"
+description = "Moves the thread to your Trash. Nobody else's copy moves."
+
+[[actions]]
+id = "restore"
+label = "Move to inbox"
+on = "mail.thread"
+description = "Back in your inbox."
+
+[[actions]]
+id = "delete-forever"
+label = "Delete for good"
+on = "mail.thread"
+confirm = "Delete this thread for everybody in it? It cannot be brought back."
+tone = "danger"
+description = "Deletes a thread you started, for everybody in it. Only in Trash."
+
+[[actions]]
+id = "add-account"
+label = "Add an account"
+tone = "primary"
+description = "An account outside the server, read and written through JMAP: Fastmail is one."
+[actions.fields]
+name = { kind = "string", required = true, description = "What to call it: Work, Fastmail" }
+address = { kind = "email", required = true, description = "The address mail from it comes from" }
+server = { kind = "url", required = true, default = "https://api.fastmail.com/jmap/session", description = "The JMAP session address; Fastmail's is filled in" }
+token = { kind = "string", required = true, description = "An API token from the provider (Fastmail: Settings › Privacy & Security › Integrations › API tokens, with mail access)" }
+
+[[actions]]
+id = "fetch"
+label = "Fetch now"
+on = "mail.account"
+description = "Reads the account's inbox now; otherwise it is read when you open Mail."
+
+[[actions]]
+id = "remove-account"
+label = "Remove"
+on = "mail.account"
+confirm = "Remove this account and every thread fetched from it?"
+tone = "danger"
+
+# -- outside ---------------------------------------------------------------------------
+# The only hosts the code reaches: Fastmail's JMAP API. Another JMAP server is a
+# line here and a new release; the sandbox lets nothing else out.
+[[fetch]]
+host = "api.fastmail.com"
+why = "to read and send mail through a Fastmail account you add, as you"

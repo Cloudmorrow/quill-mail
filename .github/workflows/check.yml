@@ -1,0 +1,27 @@
+# Every push and pull request: the manifest checks out against the
+# foundational datamodels, and the tests pass — in plain Python, and with
+# quill.py in the sandbox, as a server runs it.
+#
+# The datamodels are the ones on main of Cloudmorrow/datamodels, not the
+# release the Quill Catalog pins: a Quill is written against the next
+# release, and the catalog moves to it when the Quill is in. Checking
+# against the pin would fail every Quill that needs a new datamodel until
+# the catalog caught up, which it cannot before the Quill is released.
+name: check
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDMORROW_DATAMODELS: .datamodels
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Cloudmorrow/datamodels
+          path: .datamodels
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run cm quill check . --datamodels .datamodels
+      - run: uv run cm quill test .
+      - run: uv run cm quill test . --sandbox

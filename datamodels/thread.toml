@@ -1,0 +1,22 @@
+# A conversation: a space. One between people on the server is shared with
+# them, and whoever started it manages it; one fetched from an outside
+# account is its owner's alone. The messages are written in it; who last
+# wrote, and what each person has not read, is the space's own bookkeeping.
+
+[datamodel]
+id = "mail.thread"
+version = 1
+label = "Thread"
+description = "A mail conversation: the people in it, and the messages written in it."
+scopes = ["personal", "shared"]
+title = "subject"
+space = true
+
+[fields]
+subject = { kind = "string", required = true }
+kind = { kind = "enum", values = ["internal", "external"], labels = ["On this server", "Outside"], default = "internal", indexed = true }
+# An outside conversation: the account it came through, the addresses in it
+# besides the owner's, and the provider's own id for it.
+account = { kind = "link", to = "mail.account", indexed = true, on_delete = "cascade" }
+addresses = { kind = "string", description = "The outside addresses in it, with commas between" }
+remote = { kind = "string", indexed = true, description = "The provider's id for the conversation" }

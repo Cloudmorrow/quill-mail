@@ -1,0 +1,30 @@
+# One mail in a thread. Everybody in the thread reads it, gets a push, and
+# counts it as unread until they open the thread; its writer alone may
+# change or take it back.
+
+[datamodel]
+id = "mail.message"
+version = 1
+label = "Message"
+description = "One mail: who wrote it, to whom, and what it says."
+scopes = ["personal", "shared"]
+title = "body"
+in_space = "thread"
+authored = true
+
+[fields]
+thread = { kind = "link", to = "mail.thread", required = true, indexed = true, on_delete = "cascade" }
+sender = { kind = "string", required = true, indexed = true, label = "From", description = "A name on this server, or an outside address" }
+to = { kind = "string", label = "To" }
+cc = { kind = "string", label = "Cc" }
+body = { kind = "text", required = true }
+sent_at = { kind = "datetime", indexed = true, label = "Sent" }
+status = { kind = "enum", values = ["sent", "failed"], labels = ["Sent", "Not sent"], default = "sent", indexed = true }
+note = { kind = "string", description = "Why it was not sent" }
+remote = { kind = "string", indexed = true, description = "The provider's id for it" }
+
+[[notify]]
+when = "created"
+to = "members"
+push = true
+unread = true
