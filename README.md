@@ -45,7 +45,7 @@ HTTPS API is the one kind of outside account that fits a Quill's code.
 | Code | `quill.py`, in the sandbox, as whoever uses it; reaches `api.fastmail.com` and nothing else |
 
 Mail needs no other Quill and no runtime. It needs the core's SDK from
-v0.57.0 (`ctx.records.create` with `scope` and `members`, `ctx.records.seen`,
+v0.60.0 (`ctx.records.create` with `scope` and `members`, `ctx.records.seen`,
 `ctx.people()`, and a table whose rows go to a screen).
 
 ## Working on it
