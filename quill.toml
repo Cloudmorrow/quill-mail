@@ -10,8 +10,8 @@
 [quill]
 id = "mail"
 name = "Mail"
-version = "1.0.0"
-summary = "Email: write to anybody on your server, and read and send through your own Fastmail or JMAP account."
+version = "1.1.0"
+summary = "Email: write to anybody on your server, give everybody an address on your own domain through Cloudflare, and read and send through your own Fastmail or JMAP account."
 category = "communication"
 icon = "envelope"
 publisher = "Cloudmorrow"
@@ -21,6 +21,7 @@ features = [
   "Write to anybody on the server by name: the mail stays on the server, and they get a push",
   "Conversations as threads: a reply stays with what it answers, and what you have not read is counted",
   "Inbox, Sent, Archive and Trash, each person's own: archiving a thread hides it for you alone",
+  "Your own domain for everybody on the server, through Cloudflare: name@your-domain for each person, mail in through Email Routing and a Worker, mail out through Cloudflare's Email Service; an administrator sets it up once under Settings",
   "Add a Fastmail account (or another JMAP server the manifest names) with an API token: its inbox is fetched when you open Mail, and what you write to an outside address is sent through it",
   "Everything sealed at rest; an account's token is a secret, shown to nobody",
   "The same on the web and the phone, in the terminal and on the command line",
@@ -48,6 +49,16 @@ icon = "key"
 label = "Accounts"
 view = "accounts"
 model = "mail.account"
+
+# The server's own domain, through Cloudflare: an administrator's alone.
+# Everybody on the server gets name@the-domain; nobody else sees this screen.
+[[screens]]
+id = "settings"
+icon = "globe"
+label = "Settings"
+view = "settings"
+model = "mail.domain"
+admin = true
 
 # -- actions -------------------------------------------------------------------------
 [[actions]]
@@ -121,9 +132,49 @@ on = "mail.account"
 confirm = "Remove this account and every thread fetched from it?"
 tone = "danger"
 
+# -- the server's domain, for an administrator ---------------------------------------
+[[actions]]
+id = "connect"
+label = "Connect Cloudflare"
+tone = "primary"
+description = "An API token for the Cloudflare account the domain is on. Administrators only."
+[actions.fields]
+token = { kind = "string", required = true, description = "A Cloudflare API token: Zone Read, Email Routing Rules Edit, Workers Scripts Edit, Workers KV Storage Edit, Email Sending Edit" }
+
+[[actions]]
+id = "use-domain"
+label = "Use this domain"
+description = "Makes the domain the server's: Email Routing on, a Worker and a KV namespace in your account, every mail for the domain pulled into this server. Administrators only."
+[actions.fields]
+zone = { kind = "string", required = true, description = "Cloudflare's id for the zone" }
+
+[[actions]]
+id = "test-mail"
+label = "Send a test mail to me"
+description = "A mail from your address on the domain to itself: out through Cloudflare, back in through the Worker, in your inbox within two minutes if everything is in place."
+
+[[actions]]
+id = "disconnect"
+label = "Disconnect"
+confirm = "Forget the domain and the token? Mail already here stays; the Worker, the namespace and the routing rule stay in your Cloudflare account."
+tone = "danger"
+description = "The server stops pulling mail and sending from the domain. Administrators only."
+
+# Every minute: what the Worker put in the KV namespace, delivered to whoever it is for.
+[[jobs]]
+id = "pull"
+action = "call"
+handler = "pull"
+every = "1m"
+
 # -- outside ---------------------------------------------------------------------------
-# The only hosts the code reaches: Fastmail's JMAP API. Another JMAP server is a
-# line here and a new release; the sandbox lets nothing else out.
+# The only hosts the code reaches: Fastmail's JMAP API, and Cloudflare's API for
+# the server's own domain. Another JMAP server is a line here and a new
+# release; the sandbox lets nothing else out.
 [[fetch]]
 host = "api.fastmail.com"
 why = "to read and send mail through a Fastmail account you add, as you"
+
+[[fetch]]
+host = "api.cloudflare.com"
+why = "to set the server's domain up in your Cloudflare account, pull the mail its Worker took in, and send mail from the domain"

@@ -21,7 +21,7 @@ body = { kind = "text", required = true }
 sent_at = { kind = "datetime", indexed = true, label = "Sent" }
 status = { kind = "enum", values = ["sent", "failed"], labels = ["Sent", "Not sent"], default = "sent", indexed = true }
 note = { kind = "string", description = "Why it was not sent" }
-remote = { kind = "string", indexed = true, description = "The provider's id for it" }
+remote = { kind = "string", indexed = true, description = "The provider's id for it, or its Message-ID" }
 
 [[notify]]
 when = "created"

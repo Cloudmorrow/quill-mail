@@ -5,7 +5,7 @@
 
 [datamodel]
 id = "mail.thread"
-version = 1
+version = 2
 label = "Thread"
 description = "A mail conversation: the people in it, and the messages written in it."
 scopes = ["personal", "shared"]
@@ -20,3 +20,5 @@ kind = { kind = "enum", values = ["internal", "external"], labels = ["On this se
 account = { kind = "link", to = "mail.account", indexed = true, on_delete = "cascade" }
 addresses = { kind = "string", description = "The outside addresses in it, with commas between" }
 remote = { kind = "string", indexed = true, description = "The provider's id for the conversation" }
+# A conversation on the server's own domain: the address here it is with.
+address = { kind = "email", description = "Your address on the server's domain it came to, or went from" }

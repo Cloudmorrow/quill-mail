@@ -1,0 +1,26 @@
+# The server's own mail domain, through Cloudflare: one record, for everybody.
+# A public space, so every person's code reads it (the domain, to say their
+# address; the token, sealed, to send as them) and only an administrator
+# changes it. The token is a secret: never listed, never drawn, read by this
+# Quill's code alone. There is never more than one.
+
+[datamodel]
+id = "mail.domain"
+version = 1
+label = "Mail domain"
+description = "The server's mail domain on Cloudflare: everybody's address on it, what comes in, what goes out."
+scopes = ["public"]
+space = true
+title = "domain"
+
+[fields]
+domain = { kind = "string", indexed = true, description = "The domain, as Cloudflare has it" }
+account = { kind = "string", description = "Cloudflare's id for the account" }
+zone = { kind = "string", description = "Cloudflare's id for the zone" }
+token = { kind = "string", required = true, secret = true, description = "The Cloudflare API token" }
+namespace = { kind = "string", description = "The KV namespace the Worker puts mail in" }
+worker = { kind = "string", description = "The Worker that takes the mail in" }
+routing = { kind = "enum", values = ["off", "on"], labels = ["Off", "On"], default = "off", description = "Email Routing on the zone, pointed at the Worker" }
+status = { kind = "string", description = "What the last pull said" }
+pulled_at = { kind = "datetime", label = "Last pull" }
+received = { kind = "int", default = 0, description = "Mails delivered so far" }
