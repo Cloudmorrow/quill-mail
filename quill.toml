@@ -11,7 +11,7 @@
 [quill]
 id = "mail"
 name = "Mail"
-version = "2.0.0"
+version = "2.0.1"
 summary = "Email: an inbox for everybody on your server, name@your-cloud between you, and name@your-own-domain to the world through Cloudflare, set up once by an administrator."
 category = "communication"
 icon = "envelope"
@@ -109,9 +109,9 @@ id = "connect"
 admin = true
 label = "Connect Cloudflare"
 tone = "primary"
-description = "An API token for the Cloudflare account the domain is on. Administrators only."
+description = "An API token for the Cloudflare account the domain is on, with five permissions: Zone Read; Email Routing Rules Edit; Workers Scripts Edit; Workers KV Storage Edit; Email Sending Edit. Administrators only."
 [actions.fields]
-token = { kind = "string", required = true, description = "A Cloudflare API token: Zone Read, Email Routing Rules Edit, Workers Scripts Edit, Workers KV Storage Edit, Email Sending Edit" }
+token = { kind = "string", required = true, description = "A Cloudflare API token (My Profile › API Tokens › Custom token) allowed exactly: Zone › Zone › Read, Zone › Email Routing Rules › Edit, Account › Workers Scripts › Edit, Account › Workers KV Storage › Edit, Account › Email Sending › Edit — on the domain's zone and its account" }
 
 [[actions]]
 id = "use-domain"

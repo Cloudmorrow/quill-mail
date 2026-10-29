@@ -156,9 +156,21 @@ def test_settings_is_the_administrators_alone_and_asks_for_cloudflare_first(q):
         q.as_user("sam").view("settings")
     # The action is marked admin: the server itself turns anybody else away.
     turned = q.as_user("sam").act("connect", token="x")
-    assert turned.refused and "Connect Cloudflare is for an administrator" in turned.message
-    # Before a domain, the screen says what everybody is already.
-    assert "sam@cloudmorrow" in q.view("settings").text()
+    assert (
+        turned.refused
+        and "Connect Cloudflare is for an administrator" in turned.message
+    )
+    # Before a domain, the screen says what everybody is already, and what the token must be allowed.
+    said = q.view("settings").text()
+    assert "sam@cloudmorrow" in said
+    for right in (
+        "Zone › Read",
+        "Email Routing Rules › Edit",
+        "Workers Scripts › Edit",
+        "Workers KV Storage › Edit",
+        "Email Sending › Edit",
+    ):
+        assert right in said, right
 
 
 def test_connecting_keeps_the_token_sealed_and_lists_the_zones(q):
@@ -323,7 +335,10 @@ def test_a_refusal_from_cloudflare_is_kept_on_the_message(q):
 def test_with_a_domain_everybody_is_told_their_outside_address(q):
     set_up(q)
     sam = q.as_user("sam")
-    assert "You are sam@cloudmorrow, and sam@example.org to the world outside" in sam.view("mail").text()
+    assert (
+        "You are sam@cloudmorrow, and sam@example.org to the world outside"
+        in sam.view("mail").text()
+    )
     # Mail to a person by their domain address stays on the server.
     assert sam.act("write", to="kim@example.org", subject="Hi", body="?").ok
     (thread,) = q.as_user("kim").list(THREAD)
