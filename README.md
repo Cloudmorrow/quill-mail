@@ -12,7 +12,7 @@ the command line by Cloudmorrow itself.
 1. **Everybody has an address.** On a cloud called Bramcloud, Sam is
    `sam@bramcloud`: the inbox says so at the top. Mail to it never leaves
    the server. Nobody chooses anything; there is nothing to set up.
-2. **New mail** opens the form: To, with the people on the server offered
+2. **New mail** — the pen beside the title, as Notes and Tasks have it — opens the form: To, with the people on the server offered
    as you type (an address outside the server is taken too, with a word of
    warning under the field), **Cc, Bcc** behind one link when you want
    them, the subject and the text; then **Send**. It is a thread the
@@ -123,7 +123,7 @@ delete there or to use again.
 | Jobs | `pull`, every minute, as the administrator who installed Mail: what the Worker took in, delivered to whoever it is for |
 | Code | `quill.py`, in the sandbox, as whoever uses it; reaches `api.cloudflare.com` and nothing else |
 
-Mail needs no other Quill and no runtime. It needs the core from v0.69.0:
+Mail needs no other Quill and no runtime. It needs the core from v0.70.0 (a view's `compose`), and from v0.69.0:
 the `split` layout, `cards(current=)`, a form field with `suggest =
 "people"`, `outside` and `extra`, besides v0.67.0's `ctx.cloud` (the
 cloud's name, for everybody's address) and a screen marked `admin = true`
