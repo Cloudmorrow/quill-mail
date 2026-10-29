@@ -53,6 +53,18 @@ FOLDERS = [
 ]
 # Where an administrator finds the Quill's settings, for a word to everybody else.
 SETTINGS_ARE = "Administration › Quills › Mail"
+# What the Cloudflare token must be allowed, said on the settings page and on the
+# form that takes it: each right, and what Mail does with it.
+TOKEN_RIGHTS = """\
+At Cloudflare: *My Profile › API Tokens › Create Token › Custom token*, with these permissions and nothing more:
+
+- **Zone › Zone › Read** — to list your domains and pick one
+- **Zone › Email Routing Rules › Edit** — to turn Email Routing on and point the catch-all at the Worker
+- **Account › Workers Scripts › Edit** — to put the small Worker that takes the mail in into your account
+- **Account › Workers KV Storage › Edit** — to make the namespace the Worker puts mail in, and to read and clear it every minute
+- **Account › Email Sending › Edit** — to send mail from the domain
+
+Zone Resources: the zone of the domain (or all zones). Account Resources: the account it is in. Copy the token when it is shown; it is shown once, and kept here sealed."""
 SPLIT = re.compile(r"[,;\s]+")
 # How much of a mail's first line a row of the list shows.
 PREVIEW = 60
@@ -106,7 +118,9 @@ def sent_at(message):
 
 def preview_of(message):
     """The first line of a mail, cut short, for a row of the list."""
-    line = next((ln.strip() for ln in str(message["body"]).splitlines() if ln.strip()), "")
+    line = next(
+        (ln.strip() for ln in str(message["body"]).splitlines() if ln.strip()), ""
+    )
     return line if len(line) <= PREVIEW else line[: PREVIEW - 1].rstrip() + "…"
 
 
@@ -115,7 +129,9 @@ def preview_of(message):
 # can carry it. With a domain set up, they are name@the-domain too, to the
 # world outside; the cloud address still reaches them from inside.
 def cloud_host(ctx):
-    host = re.sub(r"[^a-z0-9.-]+", "-", str(ctx.cloud or "").strip().lower()).strip("-.")
+    host = re.sub(r"[^a-z0-9.-]+", "-", str(ctx.cloud or "").strip().lower()).strip(
+        "-."
+    )
     return host or "cloud"
 
 
@@ -389,7 +405,9 @@ def one_thread(ctx, thread_id, folder):
         through = "On this server"
     parts = [
         ui.text(str(thread["subject"]), style="title"),
-        ui.text(f"With {others_in(ctx, thread, me, domain)} · {through}", style="muted"),
+        ui.text(
+            f"With {others_in(ctx, thread, me, domain)} · {through}", style="muted"
+        ),
     ]
     for m in lines:
         head = f"From {said_sender(ctx, m['sender'], domain)} · {said_when(sent_at(m), now)}"
@@ -595,7 +613,11 @@ def token_of(ctx, domain):
 
 
 def administrators_only(ctx):
-    return None if ctx.user.admin else error("The mail domain is an administrator's to set up")
+    return (
+        None
+        if ctx.user.admin
+        else error("The mail domain is an administrator's to set up")
+    )
 
 
 def conversation_key(subject, address):
@@ -698,11 +720,11 @@ def settings(ctx):
             ),
             ui.text(
                 "First, at Cloudflare: the domain is on Cloudflare, and under Compute › Email Service › Email "
-                "Sending it is onboarded for sending (that needs the Workers Paid plan; receiving is free). Then "
-                "an API token with Zone Read, Email Routing Rules Edit, Workers Scripts Edit, Workers KV Storage "
-                "Edit and Email Sending Edit. The catalog page has the steps.",
+                "Sending it is onboarded for sending (that needs the Workers Paid plan; receiving is free).",
                 style="muted",
             ),
+            ui.text("The token", style="subtitle"),
+            ui.markdown(TOKEN_RIGHTS),
             ui.button("Connect Cloudflare", action="connect", tone="primary"),
         )
     if not domain.get("zone"):
@@ -732,7 +754,8 @@ def settings(ctx):
             )
         return ui.stack(
             ui.text(
-                "Connected to Cloudflare. Which domain is the server's?", style="subtitle"
+                "Connected to Cloudflare. Which domain is the server's?",
+                style="subtitle",
             ),
             [ui.text(said, style="muted")] if said else [],
             *rows,

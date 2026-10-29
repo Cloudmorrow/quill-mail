@@ -126,15 +126,25 @@ def test_the_inbox_counts_what_is_unread_and_its_rows_go_to_the_thread(q):
         and table["param"] == "thread"
         and table["params"] == {"folder": "inbox"}
     )
-    assert [c["label"] for c in table["columns"]] == ["From", "Subject", "Preview", "When"]
+    assert [c["label"] for c in table["columns"]] == [
+        "From",
+        "Subject",
+        "Preview",
+        "When",
+    ]
     assert [r["from"] for r in rows(inbox)] == [f"● sam@{CLOUD}", f"● sam@{CLOUD}"]
-    assert sorted(r["preview"] for r in rows(inbox)) == ["First line", "Noon at the usual place?"]
+    assert sorted(r["preview"] for r in rows(inbox)) == [
+        "First line",
+        "Noon at the usual place?",
+    ]
     # Read, the count goes; Sent says who it went to.
     kim.view("mail", thread=kim.list(THREAD)[0].id)
     assert "Inbox · 1" in kim.view("mail").buttons
     (table,) = sam.view("mail", folder="sent").find("table")
     assert table["columns"][0]["label"] == "To"
-    assert [r["from"] for r in rows(sam.view("mail", folder="sent"))] == [f"kim@{CLOUD}"] * 2
+    assert [r["from"] for r in rows(sam.view("mail", folder="sent"))] == [
+        f"kim@{CLOUD}"
+    ] * 2
 
 
 # -- addresses ------------------------------------------------------------------------------
@@ -154,11 +164,10 @@ def test_mail_to_an_outside_address_needs_the_servers_domain(q):
     assert not done.ok and "Administration › Quills › Mail" in done.error
     assert sam.list(THREAD) == []
     # And a name on no host at all is nobody here.
-    assert "Nobody here is called kim@elsewhere" in sam.act(
-        "write", to="kim@elsewhere", subject="Hi", body="?"
-    ).error
+    assert (
+        "Nobody here is called kim@elsewhere"
+        in sam.act("write", to="kim@elsewhere", subject="Hi", body="?").error
+    )
     # Ordinary people are told the server has no domain; an administrator, where to set it up.
     assert "an administrator can give it a domain" in sam.view("mail").text()
     assert "Administration › Quills › Mail" in q.view("mail").text()
-
-
