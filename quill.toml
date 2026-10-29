@@ -1,34 +1,35 @@
-# Mail: email for everybody on your server, and your own accounts outside it.
+# Mail: email for everybody on your server, and your own domain for it.
 # A conversation is a thread, a space shared with the people in it; what is
 # written in it reaches them as a push and counts as unread until they look.
-# Mail between people on the server never leaves it. An outside account
-# (Fastmail, or any JMAP server the manifest lets it reach) is read and
-# written through the provider's own HTTPS API, as you, from the sandbox:
-# nothing runs beside the server and nobody else's mail passes through
-# anybody else's code. See CLAUDE.md for the format and the loop.
+# Everybody is name@the-cloud, and that mail never leaves the server. An
+# administrator can give the server a domain through their own Cloudflare
+# account — the settings are on Mail's sheet under Administration › Quills —
+# and then everybody is name@that-domain to the world outside as well: mail
+# in through Email Routing and a Worker, mail out through Cloudflare's Email
+# Service, as the person writing. See CLAUDE.md for the format and the loop.
 
 [quill]
 id = "mail"
 name = "Mail"
-version = "1.1.0"
-summary = "Email: write to anybody on your server, give everybody an address on your own domain through Cloudflare, and read and send through your own Fastmail or JMAP account."
+version = "2.0.0"
+summary = "Email: an inbox for everybody on your server, name@your-cloud between you, and name@your-own-domain to the world through Cloudflare, set up once by an administrator."
 category = "communication"
 icon = "envelope"
 publisher = "Cloudmorrow"
 license = "AGPL-3.0-or-later"
 code = "quill.py"
 features = [
-  "Write to anybody on the server by name: the mail stays on the server, and they get a push",
-  "Conversations as threads: a reply stays with what it answers, and what you have not read is counted",
+  "An inbox for everybody: write to anybody on the server by name or as name@your-cloud; the mail stays on the server, and they get a push",
+  "Conversations as threads: a reply stays with what it answers, written in a box under it, and what you have not read is counted",
   "Inbox, Sent, Archive and Trash, each person's own: archiving a thread hides it for you alone",
-  "Your own domain for everybody on the server, through Cloudflare: name@your-domain for each person, mail in through Email Routing and a Worker, mail out through Cloudflare's Email Service; an administrator sets it up once under Settings",
-  "Add a Fastmail account (or another JMAP server the manifest names) with an API token: its inbox is fetched when you open Mail, and what you write to an outside address is sent through it",
-  "Everything sealed at rest; an account's token is a secret, shown to nobody",
+  "Your own domain for everybody, through Cloudflare: name@your-domain for each person, mail in through Email Routing and a Worker, mail out through Cloudflare's Email Service",
+  "Every setting is an administrator's: the domain is set up once, on Mail's sheet under Administration › Quills; nobody else chooses anything",
+  "Everything sealed at rest; the Cloudflare token is a secret, shown to nobody",
   "The same on the web and the phone, in the terminal and on the command line",
 ]
 
-# Everything Mail keeps is its own: accounts, threads, messages and where each
-# person filed a thread. It uses no foundational datamodel.
+# Everything Mail keeps is its own: threads, messages, where each person
+# filed a thread, and the server's domain. It uses no foundational datamodel.
 [uses]
 datamodels = []
 
@@ -42,20 +43,12 @@ label = "Mail"
 view = "mail"
 model = "mail.thread"
 
-# The accounts outside the server, and how the last fetch went.
-[[screens]]
-id = "accounts"
-icon = "key"
-label = "Accounts"
-view = "accounts"
-model = "mail.account"
-
-# The server's own domain, through Cloudflare: an administrator's alone.
-# Everybody on the server gets name@the-domain; nobody else sees this screen.
+# The server's own domain, through Cloudflare: an administrator's alone,
+# drawn on Mail's sheet under Administration › Quills and nowhere else.
 [[screens]]
 id = "settings"
 icon = "globe"
-label = "Settings"
+label = "Mail domain"
 view = "settings"
 model = "mail.domain"
 admin = true
@@ -65,7 +58,7 @@ admin = true
 id = "write"
 label = "Write"
 tone = "primary"
-description = "A new mail: to people on this server by name, or to outside addresses through your account."
+description = "A new mail: to people on this server by name or address, or to outside addresses when the server has a domain."
 [actions.fields]
 to = { kind = "string", required = true, description = "Names on this server, or email addresses, with commas between" }
 cc = { kind = "string", label = "Cc", description = "More of the same, copied in" }
@@ -77,7 +70,7 @@ id = "reply"
 label = "Reply"
 on = "mail.thread"
 tone = "primary"
-description = "Answers in this thread: everybody in it reads it, and an outside address gets it through your account."
+description = "Answers in this thread: everybody in it reads it, and an outside address gets it from your address on the server's domain."
 [actions.fields]
 body = { kind = "text", required = true }
 
@@ -108,33 +101,12 @@ confirm = "Delete this thread for everybody in it? It cannot be brought back."
 tone = "danger"
 description = "Deletes a thread you started, for everybody in it. Only in Trash."
 
-[[actions]]
-id = "add-account"
-label = "Add an account"
-tone = "primary"
-description = "An account outside the server, read and written through JMAP: Fastmail is one."
-[actions.fields]
-name = { kind = "string", required = true, description = "What to call it: Work, Fastmail" }
-address = { kind = "email", required = true, description = "The address mail from it comes from" }
-server = { kind = "url", required = true, default = "https://api.fastmail.com/jmap/session", description = "The JMAP session address; Fastmail's is filled in" }
-token = { kind = "string", required = true, description = "An API token from the provider (Fastmail: Settings › Privacy & Security › Integrations › API tokens, with mail access)" }
-
-[[actions]]
-id = "fetch"
-label = "Fetch now"
-on = "mail.account"
-description = "Reads the account's inbox now; otherwise it is read when you open Mail."
-
-[[actions]]
-id = "remove-account"
-label = "Remove"
-on = "mail.account"
-confirm = "Remove this account and every thread fetched from it?"
-tone = "danger"
-
 # -- the server's domain, for an administrator ---------------------------------------
+# Marked admin: left out of everybody else's Mail, refused to them, and on no
+# bar or palette. The Mail domain screen draws their buttons.
 [[actions]]
 id = "connect"
+admin = true
 label = "Connect Cloudflare"
 tone = "primary"
 description = "An API token for the Cloudflare account the domain is on. Administrators only."
@@ -143,6 +115,7 @@ token = { kind = "string", required = true, description = "A Cloudflare API toke
 
 [[actions]]
 id = "use-domain"
+admin = true
 label = "Use this domain"
 description = "Makes the domain the server's: Email Routing on, a Worker and a KV namespace in your account, every mail for the domain pulled into this server. Administrators only."
 [actions.fields]
@@ -150,11 +123,13 @@ zone = { kind = "string", required = true, description = "Cloudflare's id for th
 
 [[actions]]
 id = "test-mail"
+admin = true
 label = "Send a test mail to me"
 description = "A mail from your address on the domain to itself: out through Cloudflare, back in through the Worker, in your inbox within two minutes if everything is in place."
 
 [[actions]]
 id = "disconnect"
+admin = true
 label = "Disconnect"
 confirm = "Forget the domain and the token? Mail already here stays; the Worker, the namespace and the routing rule stay in your Cloudflare account."
 tone = "danger"
@@ -168,13 +143,8 @@ handler = "pull"
 every = "1m"
 
 # -- outside ---------------------------------------------------------------------------
-# The only hosts the code reaches: Fastmail's JMAP API, and Cloudflare's API for
-# the server's own domain. Another JMAP server is a line here and a new
-# release; the sandbox lets nothing else out.
-[[fetch]]
-host = "api.fastmail.com"
-why = "to read and send mail through a Fastmail account you add, as you"
-
+# The only host the code reaches: Cloudflare's API, for the server's own
+# domain. The sandbox lets nothing else out.
 [[fetch]]
 host = "api.cloudflare.com"
 why = "to set the server's domain up in your Cloudflare account, pull the mail its Worker took in, and send mail from the domain"

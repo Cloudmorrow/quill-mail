@@ -1,11 +1,14 @@
-"""Mail: the code behind the Mail and Accounts screens and their buttons.
+"""Mail: the code behind the Mail screen, its buttons, and the server's domain.
 
 Run in the sandbox as whoever is looking. A conversation is a thread, a
 space: one between people on the server is shared with them, and what is
 written in it reaches them through the core (a push, an unread count), so
-there is no delivery here, only writing. An outside account is read and
-written through its provider's JMAP API with `ctx.fetch`, as the person who
-added it; nothing else leaves the server, and nothing runs beside it.
+there is no delivery here, only writing. Everybody has an address on the
+cloud itself, name@the-cloud, which never leaves the server; when an
+administrator has given the server a domain through Cloudflare, everybody
+is name@that-domain to the outside world as well, mail to it is pulled in
+by the `pull` job and mail out goes through Cloudflare, as the person
+writing. Nothing else leaves the server, and nothing runs beside it.
 """
 
 import base64
@@ -26,18 +29,18 @@ from cloudmorrow.quill import (
     error,
     go,
     job,
+    redraw,
     toast,
     ui,
     view,
 )
 
-ACCOUNT, THREAD, MESSAGE, STATE = (
-    "mail.account",
+THREAD, MESSAGE, STATE, DOMAIN = (
     "mail.thread",
     "mail.message",
     "mail.state",
+    "mail.domain",
 )
-DOMAIN = "mail.domain"
 # Cloudflare's API, the Worker's name in the account, and how many mails one pull takes.
 CF = "https://api.cloudflare.com/client/v4"
 WORKER = "cloudmorrow-mail"
@@ -48,19 +51,11 @@ FOLDERS = [
     ("archive", "Archive"),
     ("trash", "Trash"),
 ]
-# How old an account's last fetch may be before opening Mail fetches again.
-FETCH_EVERY = dt.timedelta(minutes=2)
-# How many of an inbox's newest mails a fetch reads.
-PAGE = 50
-# A body is read whole up to this many bytes; the provider cuts it there.
-BODY_BYTES = 200_000
-
-CORE, MAILCAP, SUBMISSION = (
-    "urn:ietf:params:jmap:core",
-    "urn:ietf:params:jmap:mail",
-    "urn:ietf:params:jmap:submission",
-)
+# Where an administrator finds the Quill's settings, for a word to everybody else.
+SETTINGS_ARE = "Administration › Quills › Mail"
 SPLIT = re.compile(r"[,;\s]+")
+# How much of a mail's first line a row of the list shows.
+PREVIEW = 60
 
 
 # -- small things ----------------------------------------------------------------------
@@ -107,6 +102,79 @@ def said_when(value, now):
 
 def sent_at(message):
     return str(message.get("sent_at") or message.created_at or "")
+
+
+def preview_of(message):
+    """The first line of a mail, cut short, for a row of the list."""
+    line = next((ln.strip() for ln in str(message["body"]).splitlines() if ln.strip()), "")
+    return line if len(line) <= PREVIEW else line[: PREVIEW - 1].rstrip() + "…"
+
+
+# -- addresses ---------------------------------------------------------------------------
+# Everybody on the server is name@the-cloud: the cloud's name, as an address
+# can carry it. With a domain set up, they are name@the-domain too, to the
+# world outside; the cloud address still reaches them from inside.
+def cloud_host(ctx):
+    host = re.sub(r"[^a-z0-9.-]+", "-", str(ctx.cloud or "").strip().lower()).strip("-.")
+    return host or "cloud"
+
+
+def the_domain(ctx):
+    """The server's domain, ready for mail, or None. The token is not in a listing."""
+    for found in ctx.records.list(DOMAIN):
+        if found.get("zone") and found.get("namespace"):
+            return found
+    return None
+
+
+def any_domain(ctx):
+    found = ctx.records.list(DOMAIN)
+    return found[0] if found else None
+
+
+def address_of(ctx, name, domain=None):
+    """Somebody's address: on the domain when the server has one, else on the cloud."""
+    if domain is not None and domain.get("domain"):
+        return f"{name}@{domain['domain']}"
+    return f"{name}@{cloud_host(ctx)}"
+
+
+def my_address(ctx, domain):
+    return address_of(ctx, ctx.user.username, domain)
+
+
+def said_sender(ctx, sender, domain):
+    """A message's sender as the inbox says it: a name here with its address, an outside address as it is."""
+    sender = str(sender or "")
+    return sender if "@" in sender else address_of(ctx, sender, domain)
+
+
+def sort_out(ctx, *texts):
+    """Who a mail goes to: names on the server (typed as names, or as their
+    address on the cloud or the domain), outside addresses, and names nobody has."""
+    me = ctx.user.username
+    people = set(ctx.people())
+    domain = the_domain(ctx)
+    ours = {cloud_host(ctx)}
+    if domain is not None and domain.get("domain"):
+        ours.add(str(domain["domain"]).lower())
+    users, addresses, unknown = [], [], []
+    for text in texts:
+        for name in names_in(text):
+            local, at, host = name.partition("@")
+            if at and host in ours:
+                name = local
+            if name == me:
+                continue
+            if name in people:
+                if name not in users:
+                    users.append(name)
+            elif at and host not in ours and "." in host:
+                if name not in addresses:
+                    addresses.append(name)
+            else:
+                unknown.append(name)
+    return users, addresses, unknown
 
 
 # -- what is where -----------------------------------------------------------------------
@@ -156,12 +224,13 @@ def in_folder(folder, thread, lines, me, where):
     return where == folder
 
 
-def others_in(thread, me):
-    """Who else is in the thread, as a list says it."""
+def others_in(ctx, thread, me, domain):
+    """Who else is in the thread, as the inbox says it: their addresses."""
     if thread["kind"] == "external":
         return str(thread.get("addresses") or "")
     people = [thread.owner, *thread.members]
-    return ", ".join(p for p in dict.fromkeys(people) if p and p != me) or "me"
+    named = [p for p in dict.fromkeys(people) if p and p != me]
+    return ", ".join(address_of(ctx, p, domain) for p in named) or "me"
 
 
 def newest(thread, lines):
@@ -169,19 +238,6 @@ def newest(thread, lines):
         return sent_at(lines[-1])
     last = thread.last or {}
     return str(last.get("when") or thread.created_at or "")
-
-
-# -- the mail ----------------------------------------------------------------------------
-@view("mail")
-def mail(ctx):
-    folder = str(ctx.params.get("folder") or "inbox")
-    if folder not in dict(FOLDERS):
-        folder = "inbox"
-    notes = fetch_due(ctx)
-    opened = str(ctx.params.get("thread") or "")
-    if opened:
-        return one_thread(ctx, opened, folder, notes)
-    return listed(ctx, folder, notes)
 
 
 def conversations(threads):
@@ -202,22 +258,63 @@ def conversations(threads):
     return [groups[key] for key in order]
 
 
-def listed(ctx, folder, notes):
+def siblings_of(ctx, thread):
+    """Every thread of this conversation, the opened one included."""
+    if thread["kind"] != "external" or not thread.get("remote"):
+        return [thread]
+    found = ctx.records.list(THREAD, remote=str(thread["remote"]))
+    return found or [thread]
+
+
+# -- the inbox ---------------------------------------------------------------------------
+@view("mail")
+def mail(ctx):
+    folder = str(ctx.params.get("folder") or "inbox")
+    if folder not in dict(FOLDERS):
+        folder = "inbox"
+    opened = str(ctx.params.get("thread") or "")
+    if opened:
+        return one_thread(ctx, opened, folder)
+    return listed(ctx, folder)
+
+
+def whoami(ctx, domain):
+    """The line over the inbox: your address, and where mail from outside stands."""
+    mine = f"You are {my_address(ctx, None)}"
+    if domain is not None:
+        return f"{mine}, and {my_address(ctx, domain)} to the world outside."
+    if ctx.user.admin:
+        return f"{mine}. Mail stays on this server until you give it a domain under {SETTINGS_ARE}."
+    return f"{mine}. Mail stays on this server; an administrator can give it a domain."
+
+
+def listed(ctx, folder):
     me = ctx.user.username
     now = ctx.now()
+    domain = the_domain(ctx)
     filed = filings(ctx)
     by_thread = messages_by_thread(ctx)
-    rows, counts = [], dict.fromkeys(dict(FOLDERS), 0)
+    rows, unread_in = [], dict.fromkeys(dict(FOLDERS), 0)
     for group in conversations(ctx.records.list(THREAD)):
         lines = sorted((m for t in group for m in by_thread.get(t.id, [])), key=sent_at)
         thread = max(group, key=lambda t: newest(t, by_thread.get(t.id, [])))
         where = folder_of(thread, filed, lines, me)
-        for name in counts:
-            if in_folder(name, thread, lines, me, where):
-                counts[name] += 1
+        unread = any(t.unread > 0 for t in group)
+        if unread:
+            # The count on a folder is what is unread in it; Sent carries none,
+            # as an inbox has it: what you wrote is not news to you.
+            for name in unread_in:
+                if name != "sent" and in_folder(name, thread, lines, me, where):
+                    unread_in[name] += 1
         if not in_folder(folder, thread, lines, me, where):
             continue
-        unread = any(t.unread > 0 for t in group)
+        last = lines[-1] if lines else None
+        if folder == "sent":
+            who = others_in(ctx, thread, me, domain)
+        elif last is not None:
+            who = said_sender(ctx, last["sender"], domain)
+        else:
+            who = others_in(ctx, thread, me, domain)
         rows.append(
             (
                 newest(thread, lines),
@@ -225,47 +322,53 @@ def listed(ctx, folder, notes):
                     "id": thread.id,
                     "model": THREAD,
                     "fields": {
+                        "from": ("● " if unread else "") + who,
                         "subject": ("● " if unread else "") + str(thread["subject"]),
-                        "with": others_in(thread, me),
+                        "preview": preview_of(last) if last is not None else "",
                         "when": said_when(newest(thread, lines), now),
                     },
                 },
             )
         )
     rows.sort(key=lambda pair: pair[0], reverse=True)
-    label = dict(FOLDERS)[folder]
     bar = [ui.button("Write", action="write", tone="primary")]
     for key, name in FOLDERS:
         bar.append(
             ui.button(
-                f"{name} · {counts[key]}" if counts[key] else name,
+                f"{name} · {unread_in[key]}" if unread_in[key] else name,
                 go="mail",
                 params={"folder": key},
             )
         )
     return ui.stack(
         ui.row(*bar),
-        [ui.text(note, style="muted") for note in notes],
+        ui.text(whoami(ctx, domain), style="muted"),
         ui.table(
             [row for _, row in rows],
-            columns=[("Subject", "subject"), ("With", "with"), ("When", "when")],
+            columns=[
+                ("From", "from") if folder != "sent" else ("To", "from"),
+                ("Subject", "subject"),
+                ("Preview", "preview"),
+                ("When", "when"),
+            ],
             go="mail",
             param="thread",
             params={"folder": folder},
-            empty=EMPTY.get(folder, f"Nothing in {label}."),
+            empty=EMPTY.get(folder, f"Nothing in {dict(FOLDERS)[folder]}."),
         ),
     )
 
 
 EMPTY = {
-    "inbox": "Nothing new. Write to somebody on the server by name, or add an account to read mail from outside.",
+    "inbox": "Nothing new. Write to somebody on this server by name, or by their address.",
     "sent": "Nothing sent yet.",
 }
 
 
-def one_thread(ctx, thread_id, folder, notes):
+def one_thread(ctx, thread_id, folder):
     me = ctx.user.username
     now = ctx.now()
+    domain = the_domain(ctx)
     try:
         thread = ctx.records.get(THREAD, thread_id)
     except (NotFound, Refused, Invalid):
@@ -281,19 +384,15 @@ def one_thread(ctx, thread_id, folder, notes):
     for t in group:
         ctx.records.seen(THREAD, t.id)
     if thread["kind"] == "external":
-        account = account_of(ctx, thread)
-        if thread.get("address"):
-            through = f"Outside, from {thread['address']}"
-        else:
-            through = f"Outside, through {account['name']}" if account else "Outside"
+        through = f"Outside, from {thread.get('address') or my_address(ctx, domain)}"
     else:
         through = "On this server"
     parts = [
         ui.text(str(thread["subject"]), style="title"),
-        ui.text(f"With {others_in(thread, me)} · {through}", style="muted"),
+        ui.text(f"With {others_in(ctx, thread, me, domain)} · {through}", style="muted"),
     ]
     for m in lines:
-        head = f"{m['sender']} · {said_when(sent_at(m), now)}"
+        head = f"From {said_sender(ctx, m['sender'], domain)} · {said_when(sent_at(m), now)}"
         if m.get("to"):
             head += f" · to {m['to']}"
         if m.get("cc"):
@@ -308,7 +407,7 @@ def one_thread(ctx, thread_id, folder, notes):
                 )
             )
         parts.append(ui.markdown(str(m["body"])))
-    buttons = [ui.button("Reply", action="reply", record=thread, tone="primary")]
+    buttons = []
     if where == "inbox":
         buttons += [
             ui.button("Archive", action="archive", record=thread),
@@ -332,30 +431,18 @@ def one_thread(ctx, thread_id, folder, notes):
             )
     buttons.append(ui.button("Back", go="mail", params={"folder": folder}))
     return ui.stack(
-        [ui.text(note, style="muted") for note in notes],
         *parts,
         ui.divider(),
+        ui.text("Reply", style="subtitle"),
+        ui.form("reply", record=thread, submit="Send"),
         ui.row(*buttons),
     )
 
 
 # -- writing -----------------------------------------------------------------------------
-def sort_out(ctx, *texts):
-    """Who a mail goes to: names on the server, outside addresses, and names nobody has."""
-    me = ctx.user.username
-    people = set(ctx.people())
-    users, addresses, unknown = [], [], []
-    for text in texts:
-        for name in names_in(text):
-            if name == me:
-                continue
-            if name in people:
-                users.append(name)
-            elif "@" in name and "." in name.rsplit("@", 1)[-1]:
-                addresses.append(name)
-            else:
-                unknown.append(name)
-    return users, addresses, unknown
+def to_said(ctx, users, addresses, domain):
+    """Who a mail went to, as the message keeps it: everybody's address."""
+    return ", ".join([address_of(ctx, u, domain) for u in users] + list(addresses))
 
 
 @action("write")
@@ -367,16 +454,12 @@ def write(ctx, to, subject, body, cc=""):
         )
     if not users and not addresses:
         return error("Who is it to? A name on this server, or an email address")
-    account = domain = None
-    if addresses:
-        domain = the_domain(ctx)
-        if domain is None:
-            accounts = ctx.records.list(ACCOUNT)
-            if not accounts:
-                return error(
-                    "Mail to an outside address goes through an account of yours: add one under Accounts"
-                )
-            account = accounts[0]
+    domain = the_domain(ctx)
+    if addresses and domain is None:
+        return error(
+            "Mail to an address outside this server needs the server's own domain, "
+            f"which an administrator sets up under {SETTINGS_ARE}"
+        )
     me = ctx.user.username
     fields = {
         "subject": str(subject).strip(),
@@ -384,9 +467,6 @@ def write(ctx, to, subject, body, cc=""):
     }
     if addresses:
         fields["addresses"] = ", ".join(addresses)
-    if account is not None:
-        fields["account"] = account.id
-    if domain is not None:
         fields["address"] = my_address(ctx, domain)
         fields["remote"] = conversation_key(fields["subject"], addresses[0])
     thread = ctx.records.create(
@@ -401,31 +481,34 @@ def write(ctx, to, subject, body, cc=""):
         MESSAGE,
         thread=thread.id,
         sender=me,
-        to=", ".join(n for n in users + addresses if n not in cc_users + cc_addresses),
-        cc=", ".join(cc_users + cc_addresses),
+        to=to_said(
+            ctx,
+            [u for u in users if u not in cc_users],
+            [a for a in addresses if a not in cc_addresses],
+            domain,
+        ),
+        cc=to_said(ctx, cc_users, cc_addresses, domain),
         body=str(body),
         sent_at=ctx.now().isoformat(),
     )
-    if domain is not None:
+    if addresses:
         send_domain(ctx, domain, thread, message, addresses)
-    elif account is not None:
-        send_out(ctx, account, thread, message, addresses)
     return go("mail", thread=thread.id, folder="sent")
 
 
 @action("reply")
 def reply(ctx, thread, body):
     me = ctx.user.username
+    domain = the_domain(ctx)
     message = ctx.records.create(
         MESSAGE,
         thread=thread.id,
         sender=me,
-        to=others_in(thread, me),
+        to=others_in(ctx, thread, me, domain),
         body=str(body),
         sent_at=ctx.now().isoformat(),
     )
-    if thread["kind"] == "external" and thread.get("address"):
-        domain = the_domain(ctx)
+    if thread["kind"] == "external":
         if domain is None:
             ctx.records.patch(
                 MESSAGE,
@@ -435,17 +518,6 @@ def reply(ctx, thread, body):
             )
         else:
             send_domain(ctx, domain, thread, message, names_in(thread.get("addresses")))
-    elif thread["kind"] == "external":
-        account = account_of(ctx, thread)
-        if account is None:
-            ctx.records.patch(
-                MESSAGE,
-                message.id,
-                status="failed",
-                note="the account it came through is gone",
-            )
-        else:
-            send_out(ctx, account, thread, message, names_in(thread.get("addresses")))
     # Answering a thread brings it back to my inbox when I had archived it.
     if filings(ctx).get(thread.id) is not None:
         file_thread(ctx, thread.id, "inbox")
@@ -486,78 +558,9 @@ def delete_forever(ctx, thread):
     return go("mail", folder="trash")
 
 
-# -- accounts ----------------------------------------------------------------------------
-@view("accounts")
-def accounts(ctx):
-    found = ctx.records.list(ACCOUNT)
-    return ui.stack(
-        ui.text(
-            "An account outside the server, read and written through its provider's JMAP API, as you. "
-            "Fastmail is one: make an API token with mail access under Settings › Privacy & Security › "
-            "Integrations. Its inbox is fetched when you open Mail. Mail to an outside address goes from "
-            "your address on the server's own domain when the server has one, else through the first "
-            "account here.",
-            style="muted",
-        ),
-        ui.table(
-            found,
-            columns=["name", "address", "status", ("Last fetched", "fetched_at")],
-            actions=["fetch", "remove-account"],
-            empty="No account yet. Mail between people on this server needs none.",
-        ),
-        ui.button("Add an account", action="add-account", tone="primary"),
-    )
-
-
-@action("add_account")
-def add_account(ctx, name, address, server, token):
-    made = ctx.records.create(
-        ACCOUNT,
-        name=str(name).strip(),
-        address=str(address).strip().lower(),
-        server=str(server).strip(),
-        token=token,
-    )
-    return toast(f"Added {made['name']}. {fetch_account(ctx, made)}")
-
-
-@action("fetch")
-def fetch(ctx, account):
-    return toast(fetch_account(ctx, account))
-
-
-@action("remove_account")
-def remove_account(ctx, account):
-    ctx.records.delete(ACCOUNT, account.id)
-    return toast(f"Removed {account['name']} and what was fetched from it")
-
-
-def account_of(ctx, thread):
-    if not thread.get("account"):
-        return None
-    try:
-        return ctx.records.get(ACCOUNT, str(thread["account"]))
-    except (NotFound, Refused, Invalid):
-        return None
-
-
-def fetch_due(ctx):
-    """Fetch every account whose last fetch is old enough; what each said when it went wrong."""
-    notes = []
-    now = ctx.now()
-    for account in ctx.records.list(ACCOUNT):
-        last = moment(account.get("fetched_at"))
-        if last is not None and now - last < FETCH_EVERY:
-            continue
-        said = fetch_account(ctx, account)
-        if not said.startswith("Fetched"):
-            notes.append(f"{account['name']}: {said}")
-    return notes
-
-
-# -- JMAP ---------------------------------------------------------------------------------
+# -- reaching out ----------------------------------------------------------------------
 class MailError(Exception):
-    """What the provider, or the way to it, said."""
+    """What Cloudflare, or the way to it, said."""
 
 
 def host_of(url):
@@ -576,318 +579,6 @@ def reach(ctx, url, **how):
         raise MailError(f"{host_of(url)} could not be reached: {exc}") from None
 
 
-def jmap(ctx, account, calls, token):
-    """One JMAP request: the responses by the call id each was given."""
-    setup = account.get("setup") or {}
-    response = reach(
-        ctx,
-        setup["apiUrl"],
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-        body=json.dumps({"using": [CORE, MAILCAP, SUBMISSION], "methodCalls": calls}),
-    )
-    if response.status in (401, 403):
-        raise MailError(
-            "the token was refused; make a new one and add the account again"
-        )
-    if not response.ok:
-        raise MailError(f"the provider answered {response.status}")
-    try:
-        answered = response.json()["methodResponses"]
-    except (ValueError, KeyError, TypeError):
-        raise MailError("the provider's answer was not JMAP") from None
-    out = {}
-    for name, result, call_id in answered:
-        out[str(call_id)] = (str(name), result if isinstance(result, dict) else {})
-    return out
-
-
-def session(ctx, account, token):
-    """Where the account's API is, which account it is, and its mailboxes and identity — kept on the record."""
-    response = reach(
-        ctx, str(account["server"]), headers={"Authorization": f"Bearer {token}"}
-    )
-    if response.status in (401, 403):
-        raise MailError(
-            "the token was refused; make a new one and add the account again"
-        )
-    if not response.ok:
-        raise MailError(f"{account['server']} answered {response.status}")
-    try:
-        data = response.json()
-        setup = {
-            "apiUrl": str(data["apiUrl"]),
-            "accountId": str(data["primaryAccounts"][MAILCAP]),
-        }
-    except (ValueError, KeyError, TypeError):
-        raise MailError(
-            f"{account['server']} is not a JMAP session with mail in it"
-        ) from None
-    if not setup["apiUrl"].startswith("https://"):
-        raise MailError("the provider's API is not https")
-    account = ctx.records.patch(ACCOUNT, account.id, setup=setup)
-    answered = jmap(
-        ctx,
-        account,
-        [
-            [
-                "Mailbox/get",
-                {
-                    "accountId": setup["accountId"],
-                    "ids": None,
-                    "properties": ["id", "role", "name"],
-                },
-                "m",
-            ],
-            ["Identity/get", {"accountId": setup["accountId"], "ids": None}, "i"],
-        ],
-        token,
-    )
-    boxes = {}
-    for box in answered.get("m", ("", {}))[1].get("list") or []:
-        role = str(box.get("role") or "")
-        if role in ("inbox", "sent", "drafts") and role not in boxes:
-            boxes[role] = str(box["id"])
-    if "inbox" not in boxes:
-        raise MailError("the account has no inbox")
-    identities = answered.get("i", ("", {}))[1].get("list") or []
-    mine = [
-        i
-        for i in identities
-        if str(i.get("email") or "").lower() == str(account["address"]).lower()
-    ]
-    setup["mailboxes"] = boxes
-    setup["identityId"] = str((mine or identities or [{}])[0].get("id") or "")
-    return ctx.records.patch(ACCOUNT, account.id, setup=setup)
-
-
-def ready(ctx, account):
-    """The account with its setup on it, and the token: read from the one record, as its owner."""
-    account = ctx.records.get(ACCOUNT, account.id)
-    token = str(account.get("token") or "")
-    if not token:
-        raise MailError("the account has no token")
-    setup = account.get("setup") or {}
-    if not setup.get("mailboxes"):
-        account = session(ctx, account, token)
-    return account, token
-
-
-def fetch_account(ctx, account):
-    """Read the account's inbox into threads and messages; what it said, for a toast."""
-    try:
-        account, token = ready(ctx, account)
-        setup = account["setup"]
-        answered = jmap(
-            ctx,
-            account,
-            [
-                [
-                    "Email/query",
-                    {
-                        "accountId": setup["accountId"],
-                        "filter": {"inMailbox": setup["mailboxes"]["inbox"]},
-                        "sort": [{"property": "receivedAt", "isAscending": False}],
-                        "limit": PAGE,
-                    },
-                    "q",
-                ],
-                [
-                    "Email/get",
-                    {
-                        "accountId": setup["accountId"],
-                        "#ids": {
-                            "resultOf": "q",
-                            "name": "Email/query",
-                            "path": "/ids",
-                        },
-                        "properties": [
-                            "id",
-                            "threadId",
-                            "subject",
-                            "from",
-                            "to",
-                            "cc",
-                            "receivedAt",
-                            "textBody",
-                            "bodyValues",
-                        ],
-                        "fetchTextBodyValues": True,
-                        "maxBodyValueBytes": BODY_BYTES,
-                    },
-                    "e",
-                ],
-            ],
-            token,
-        )
-        name, result = answered.get("e", ("", {}))
-        if name != "Email/get":
-            raise MailError(
-                f"the provider said {result.get('type') or name or 'nothing'}"
-            )
-        made = keep(ctx, account, result.get("list") or [])
-    except MailError as exc:
-        said = f"Not fetched: {exc}"
-        ctx.records.patch(ACCOUNT, account.id, status=said)
-        return said
-    said = (
-        f"Fetched {plural(made, 'new mail', 'new mails')}"
-        if made
-        else "Fetched: nothing new"
-    )
-    ctx.records.patch(
-        ACCOUNT, account.id, status=said, fetched_at=ctx.now().isoformat()
-    )
-    return said
-
-
-def address_of(part):
-    return str((part or {}).get("email") or "").strip().lower()
-
-
-def addresses_said(parts):
-    return ", ".join(a for a in (address_of(p) for p in parts or []) if a)
-
-
-def body_of(email):
-    values = email.get("bodyValues") or {}
-    for part in email.get("textBody") or []:
-        found = values.get(str(part.get("partId")))
-        if found and found.get("value") is not None:
-            return str(found["value"])
-    return ""
-
-
-def keep(ctx, account, emails):
-    """New messages as records, in threads by the provider's own threading; how many were new."""
-    known = {str(m["remote"]) for m in ctx.records.list(MESSAGE) if m.get("remote")}
-    threads = {
-        str(t["remote"]): t
-        for t in ctx.records.list(THREAD, account=account.id)
-        if t.get("remote")
-    }
-    mine = str(account["address"]).lower()
-    made = 0
-    for mail in sorted(emails, key=lambda e: str(e.get("receivedAt") or "")):
-        remote = str(mail.get("id") or "")
-        if not remote or remote in known:
-            continue
-        people = [
-            address_of(p)
-            for p in (mail.get("from") or [])
-            + (mail.get("to") or [])
-            + (mail.get("cc") or [])
-        ]
-        others = [p for p in dict.fromkeys(people) if p and p != mine]
-        thread_key = str(mail.get("threadId") or remote)
-        thread = threads.get(thread_key)
-        if thread is None:
-            thread = ctx.records.create(
-                THREAD,
-                scope="personal",
-                subject=str(mail.get("subject") or "(no subject)"),
-                kind="external",
-                account=account.id,
-                addresses=", ".join(others),
-                remote=thread_key,
-            )
-            threads[thread_key] = thread
-        elif others and set(others) - set(names_in(thread.get("addresses"))):
-            joined = list(dict.fromkeys(names_in(thread.get("addresses")) + others))
-            threads[thread_key] = ctx.records.patch(
-                THREAD, thread.id, addresses=", ".join(joined)
-            )
-        sender = addresses_said(mail.get("from")) or "unknown"
-        ctx.records.create(
-            MESSAGE,
-            thread=thread.id,
-            sender=mine if sender == mine else sender,
-            to=addresses_said(mail.get("to")),
-            cc=addresses_said(mail.get("cc")),
-            body=body_of(mail) or "(no text)",
-            sent_at=str(mail.get("receivedAt") or ctx.now().isoformat()),
-            remote=remote,
-        )
-        known.add(remote)
-        made += 1
-    return made
-
-
-def send_out(ctx, account, thread, message, addresses):
-    """Send a message through the account: True when the provider took it, else the
-    message says what went wrong and the thread keeps it."""
-    try:
-        account, token = ready(ctx, account)
-        setup = account["setup"]
-        boxes = setup["mailboxes"]
-        if not setup.get("identityId"):
-            raise MailError("the account has no identity to send as")
-        cc = [a for a in names_in(message.get("cc")) if "@" in a]
-        to = [a for a in addresses if a not in cc]
-        draft = {
-            "mailboxIds": {boxes.get("drafts") or boxes["inbox"]: True},
-            "keywords": {"$draft": True, "$seen": True},
-            "from": [{"email": str(account["address"])}],
-            "to": [{"email": a} for a in to],
-            "cc": [{"email": a} for a in cc],
-            "subject": str(thread["subject"]),
-            "textBody": [{"partId": "t", "type": "text/plain"}],
-            "bodyValues": {"t": {"value": str(message["body"])}},
-        }
-        after = {
-            "keywords/$draft": None,
-            f"mailboxIds/{boxes.get('drafts') or boxes['inbox']}": None,
-        }
-        if boxes.get("sent"):
-            after[f"mailboxIds/{boxes['sent']}"] = True
-        answered = jmap(
-            ctx,
-            account,
-            [
-                [
-                    "Email/set",
-                    {"accountId": setup["accountId"], "create": {"draft": draft}},
-                    "s",
-                ],
-                [
-                    "EmailSubmission/set",
-                    {
-                        "accountId": setup["accountId"],
-                        "create": {
-                            "sub": {
-                                "emailId": "#draft",
-                                "identityId": setup["identityId"],
-                            }
-                        },
-                        "onSuccessUpdateEmail": {"#sub": after},
-                    },
-                    "u",
-                ],
-            ],
-            token,
-        )
-        name, result = answered.get("u", ("", {}))
-        if name != "EmailSubmission/set" or "sub" not in (result.get("created") or {}):
-            refused = (result.get("notCreated") or {}).get("sub") or {}
-            made = answered.get("s", ("", {}))[1]
-            refused = refused or (made.get("notCreated") or {}).get("draft") or {}
-            raise MailError(
-                str(
-                    refused.get("description")
-                    or refused.get("type")
-                    or name
-                    or "the provider said nothing"
-                )
-            )
-    except MailError as exc:
-        ctx.records.patch(MESSAGE, message.id, status="failed", note=str(exc))
-        return False
-    return True
-
-
 # -- the server's own domain, through Cloudflare ---------------------------------------------
 # One record of `mail.domain`, a public space: everybody's code reads it (the
 # domain, to say their address; the token, sealed, to send as them) and an
@@ -895,19 +586,6 @@ def send_out(ctx, account, thread, message, addresses):
 # as the administrator who installed Mail, it takes what the Worker put in the
 # KV namespace and delivers each mail to the person it is for — a thread and a
 # message of theirs, news to them — and sees nothing of it afterwards.
-def the_domain(ctx):
-    """The server's domain, ready for mail, or None. The token is not in a listing."""
-    for found in ctx.records.list(DOMAIN):
-        if found.get("zone") and found.get("namespace"):
-            return found
-    return None
-
-
-def any_domain(ctx):
-    found = ctx.records.list(DOMAIN)
-    return found[0] if found else None
-
-
 def token_of(ctx, domain):
     """The sealed token, read from the one record: how a secret field is asked for."""
     token = str(ctx.records.get(DOMAIN, domain.id).get("token") or "")
@@ -916,12 +594,8 @@ def token_of(ctx, domain):
     return token
 
 
-def my_address(ctx, domain):
-    return f"{ctx.user.username}@{domain['domain']}"
-
-
 def administrators_only(ctx):
-    return None if ctx.user.admin else error("Settings is for an administrator")
+    return None if ctx.user.admin else error("The mail domain is an administrator's to set up")
 
 
 def conversation_key(subject, address):
@@ -935,14 +609,6 @@ def conversation_key(subject, address):
             break
         bare = peeled
     return f"{re.sub(r'\s+', ' ', bare)}|{str(address or '').strip().lower()}"
-
-
-def siblings_of(ctx, thread):
-    """Every thread of this conversation, the opened one included."""
-    if thread["kind"] != "external" or not thread.get("remote"):
-        return [thread]
-    found = ctx.records.list(THREAD, remote=str(thread["remote"]))
-    return found or [thread]
 
 
 # -- Cloudflare's API -----------------------------------------------------------------------
@@ -1009,13 +675,23 @@ def multipart(parts):
 
 @view("settings")
 def settings(ctx):
+    """The server's domain: drawn on Mail's sheet under Administration › Quills,
+    for an administrator alone."""
     if not ctx.user.admin:
-        return ui.empty("Settings is for an administrator.")
+        return ui.empty("The mail domain is an administrator's to set up.")
     domain = any_domain(ctx)
+    me = ctx.user.username
+    people = sorted({me, *ctx.people()})
     if domain is None:
         return ui.stack(
             ui.text(
-                "Your own domain for everybody on this server, through your Cloudflare account: name@your-domain "
+                f"Everybody on this server is name@{cloud_host(ctx)} already: "
+                + ", ".join(address_of(ctx, who) for who in people)
+                + ". That mail stays on the server.",
+                style="muted",
+            ),
+            ui.text(
+                "Your own domain for everybody, through your Cloudflare account: name@your-domain "
                 "for each person, mail in through Email Routing and a Worker, mail out through Cloudflare's "
                 "Email Service. Nothing runs anywhere but in your account; Cloudmorrow holds none of it.",
                 style="muted",
@@ -1056,17 +732,15 @@ def settings(ctx):
             )
         return ui.stack(
             ui.text(
-                "Connected to Cloudflare. Which domain is the server's?", style="title"
+                "Connected to Cloudflare. Which domain is the server's?", style="subtitle"
             ),
             [ui.text(said, style="muted")] if said else [],
             *rows,
             ui.divider(),
             ui.button("Disconnect", action="disconnect", tone="danger"),
         )
-    me = ctx.user.username
-    people = sorted({me, *ctx.people()})
     return ui.stack(
-        ui.text(str(domain["domain"]), style="title"),
+        ui.text(str(domain["domain"]), style="subtitle"),
         ui.row(
             ui.stat("Email Routing", "On" if domain.get("routing") == "on" else "Off"),
             ui.stat("Worker", str(domain.get("worker") or "")),
@@ -1082,7 +756,8 @@ def settings(ctx):
         ui.text(
             "Everybody here has an address on it; mail to it lands in their inbox within a minute, and what they "
             "write to an outside address goes from it. "
-            + ", ".join(f"{who}@{domain['domain']}" for who in people),
+            + ", ".join(address_of(ctx, who, domain) for who in people)
+            + f". Inside the server they are still name@{cloud_host(ctx)}.",
             style="muted",
         ),
         ui.row(
@@ -1119,7 +794,7 @@ def connect(ctx, token):
         ctx.records.create(DOMAIN, scope="public", token=token, status=status)
     else:
         ctx.records.patch(DOMAIN, found.id, token=token, status=status)
-    return go("settings")
+    return redraw()
 
 
 @action("use_domain")
@@ -1219,7 +894,7 @@ def use_domain(ctx, zone):
         routing="on",
         status="Ready: Email Routing is on and the Worker is in place",
     )
-    return go("settings")
+    return redraw()
 
 
 @action("test_mail")

@@ -1,6 +1,7 @@
-"""The server's own domain, through Cloudflare: set up by an administrator under
-Settings, mail in through the Worker and the pull job, mail out through Cloudflare's
-Email Service. Cloudflare is a stub: what `ctx.fetch` gets is put in each test.
+"""The server's own domain, through Cloudflare: set up by an administrator on Mail's
+sheet under Administration › Quills (the `settings` screen, marked admin), mail in
+through the Worker and the pull job, mail out through Cloudflare's Email Service.
+Cloudflare is a stub: what `ctx.fetch` gets is put in each test.
 """
 
 import base64
@@ -11,12 +12,7 @@ import json
 import pytest
 from cloudmorrow.quill.testing import Harness
 
-ACCOUNT, THREAD, MESSAGE, DOMAIN = (
-    "mail.account",
-    "mail.thread",
-    "mail.message",
-    "mail.domain",
-)
+THREAD, MESSAGE, DOMAIN = ("mail.thread", "mail.message", "mail.domain")
 CF = "https://api.cloudflare.com/client/v4"
 ZONE, ACCT, NS = "z1", "a1", "ns1"
 
@@ -50,6 +46,8 @@ def connect(q):
     )
     done = q.act("connect", token="cf-token-1")
     assert done.ok, done
+    # Drawn on the Quill's sheet: the answer is a redraw there, not a go anywhere.
+    assert [e["effect"] for e in done.effects] == ["redraw"]
     return done
 
 
@@ -156,10 +154,11 @@ def test_settings_is_the_administrators_alone_and_asks_for_cloudflare_first(q):
     assert "Connect Cloudflare" in q.view("settings").buttons
     with pytest.raises(AssertionError, match="for an administrator"):
         q.as_user("sam").view("settings")
-    assert (
-        q.as_user("sam").act("connect", token="x").error
-        == "Settings is for an administrator"
-    )
+    # The action is marked admin: the server itself turns anybody else away.
+    turned = q.as_user("sam").act("connect", token="x")
+    assert turned.refused and "Connect Cloudflare is for an administrator" in turned.message
+    # Before a domain, the screen says what everybody is already.
+    assert "sam@cloudmorrow" in q.view("settings").text()
 
 
 def test_connecting_keeps_the_token_sealed_and_lists_the_zones(q):
@@ -277,11 +276,7 @@ def test_an_answer_lands_in_the_conversation_and_a_reply_goes_out_from_my_addres
     done = sam.act("write", to="ada@example.net", subject="Lunch?", body="Noon?")
     assert done.ok, done
     (mine,) = sam.list(THREAD)
-    assert (
-        mine["address"] == "sam@example.org"
-        and mine["kind"] == "external"
-        and mine.get("account") is None
-    )
+    assert mine["address"] == "sam@example.org" and mine["kind"] == "external"
     (sent,) = sent_through_cloudflare(q)
     assert sent["from"]["address"] == "sam@example.org" and sent["to"] == [
         "ada@example.net"
@@ -325,10 +320,14 @@ def test_a_refusal_from_cloudflare_is_kept_on_the_message(q):
     assert message["status"] == "failed" and "not onboarded" in message["note"]
 
 
-def test_with_no_domain_mail_out_still_goes_through_your_own_account(q):
+def test_with_a_domain_everybody_is_told_their_outside_address(q):
+    set_up(q)
     sam = q.as_user("sam")
-    done = sam.act("write", to="ada@example.net", subject="Hi", body="?")
-    assert not done.ok and "add one under Accounts" in done.error
+    assert "You are sam@cloudmorrow, and sam@example.org to the world outside" in sam.view("mail").text()
+    # Mail to a person by their domain address stays on the server.
+    assert sam.act("write", to="kim@example.org", subject="Hi", body="?").ok
+    (thread,) = q.as_user("kim").list(THREAD)
+    assert thread["kind"] == "internal" and thread.members == ["kim"]
 
 
 def test_a_test_mail_goes_from_my_address_to_itself(q):
