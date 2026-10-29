@@ -11,7 +11,7 @@
 [quill]
 id = "mail"
 name = "Mail"
-version = "2.0.1"
+version = "2.1.0"
 summary = "Email: an inbox for everybody on your server, name@your-cloud between you, and name@your-own-domain to the world through Cloudflare, set up once by an administrator."
 category = "communication"
 icon = "envelope"
@@ -19,8 +19,8 @@ publisher = "Cloudmorrow"
 license = "AGPL-3.0-or-later"
 code = "quill.py"
 features = [
-  "An inbox for everybody: write to anybody on the server by name or as name@your-cloud; the mail stays on the server, and they get a push",
-  "Conversations as threads: a reply stays with what it answers, written in a box under it, and what you have not read is counted",
+  "An inbox for everybody: the mails on the left, the open one on the right; send to anybody on the server, offered as you type, or as name@your-cloud; the mail stays on the server, and they get a push",
+  "To, Cc and Bcc, with a word of warning when an address is outside the server; conversations as threads, a reply written in a box under the last mail, and what you have not read counted",
   "Inbox, Sent, Archive and Trash, each person's own: archiving a thread hides it for you alone",
   "Your own domain for everybody, through Cloudflare: name@your-domain for each person, mail in through Email Routing and a Worker, mail out through Cloudflare's Email Service",
   "Every setting is an administrator's: the domain is set up once, on Mail's sheet under Administration › Quills; nobody else chooses anything",
@@ -34,8 +34,9 @@ features = [
 datamodels = []
 
 # -- screens -------------------------------------------------------------------------
-# The mail: a folder's threads, or one thread open with its messages and a
-# reply box. ?folder= is inbox, sent, archive or trash; ?thread= opens one.
+# The inbox: a folder's conversations on the left, the open one on the right
+# with its messages and a reply box. ?folder= is inbox, sent, archive or
+# trash; ?thread= opens one.
 [[screens]]
 id = "mail"
 icon = "envelope"
@@ -55,13 +56,14 @@ admin = true
 
 # -- actions -------------------------------------------------------------------------
 [[actions]]
-id = "write"
-label = "Write"
+id = "send"
+label = "Send"
 tone = "primary"
-description = "A new mail: to people on this server by name or address, or to outside addresses when the server has a domain."
+description = "A new mail. To: people on this server, offered as you type, or addresses outside it when the server has a domain."
 [actions.fields]
-to = { kind = "string", required = true, description = "Names on this server, or email addresses, with commas between" }
-cc = { kind = "string", label = "Cc", description = "More of the same, copied in" }
+to = { kind = "string", required = true, suggest = "people", outside = "Be aware: you are sending to someone outside this server." }
+cc = { kind = "string", label = "Cc", suggest = "people", outside = "Be aware: you are sending to someone outside this server.", extra = true }
+bcc = { kind = "string", label = "Bcc", suggest = "people", outside = "Be aware: you are sending to someone outside this server.", extra = true, description = "Each gets a copy of their own; nobody else sees them" }
 subject = { kind = "string", required = true }
 body = { kind = "text", required = true }
 

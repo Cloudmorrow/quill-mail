@@ -285,13 +285,18 @@ def siblings_of(ctx, thread):
 # -- the inbox ---------------------------------------------------------------------------
 @view("mail")
 def mail(ctx):
+    """An inbox: the list on the left, the open mail on the right; on a phone
+    the list, then the mail once one is chosen."""
     folder = str(ctx.params.get("folder") or "inbox")
     if folder not in dict(FOLDERS):
         folder = "inbox"
     opened = str(ctx.params.get("thread") or "")
+    side = listed(ctx, folder, opened)
     if opened:
-        return one_thread(ctx, opened, folder)
-    return listed(ctx, folder)
+        main = one_thread(ctx, opened, folder)
+    else:
+        main = ui.empty("Choose a mail on the left, or send a new one.")
+    return ui.split(side, main, show="main" if opened else "side")
 
 
 def whoami(ctx, domain):
@@ -304,7 +309,9 @@ def whoami(ctx, domain):
     return f"{mine}. Mail stays on this server; an administrator can give it a domain."
 
 
-def listed(ctx, folder):
+def listed(ctx, folder, opened=""):
+    """The list: New mail, the folders with what is unread counted, your
+    address, and a card per conversation — who, the subject, the first line."""
     me = ctx.user.username
     now = ctx.now()
     domain = the_domain(ctx)
@@ -331,6 +338,7 @@ def listed(ctx, folder):
             who = said_sender(ctx, last["sender"], domain)
         else:
             who = others_in(ctx, thread, me, domain)
+        when = said_when(newest(thread, lines), now)
         rows.append(
             (
                 newest(thread, lines),
@@ -338,16 +346,15 @@ def listed(ctx, folder):
                     "id": thread.id,
                     "model": THREAD,
                     "fields": {
-                        "from": ("● " if unread else "") + who,
                         "subject": ("● " if unread else "") + str(thread["subject"]),
+                        "who": f"{who} · {when}" if when else who,
                         "preview": preview_of(last) if last is not None else "",
-                        "when": said_when(newest(thread, lines), now),
                     },
                 },
             )
         )
     rows.sort(key=lambda pair: pair[0], reverse=True)
-    bar = [ui.button("Write", action="write", tone="primary")]
+    bar = []
     for key, name in FOLDERS:
         bar.append(
             ui.button(
@@ -357,26 +364,25 @@ def listed(ctx, folder):
             )
         )
     return ui.stack(
+        ui.button("New mail", action="send", tone="primary"),
         ui.row(*bar),
-        ui.text(whoami(ctx, domain), style="muted"),
-        ui.table(
+        ui.text(whoami(ctx, domain), style="small"),
+        ui.cards(
             [row for _, row in rows],
-            columns=[
-                ("From", "from") if folder != "sent" else ("To", "from"),
-                ("Subject", "subject"),
-                ("Preview", "preview"),
-                ("When", "when"),
-            ],
+            title="subject",
+            subtitle="who",
+            body="preview",
             go="mail",
             param="thread",
             params={"folder": folder},
+            current=opened,
             empty=EMPTY.get(folder, f"Nothing in {dict(FOLDERS)[folder]}."),
         ),
     )
 
 
 EMPTY = {
-    "inbox": "Nothing new. Write to somebody on this server by name, or by their address.",
+    "inbox": "Nothing new. Send a mail to somebody on this server by name, or by their address.",
     "sent": "Nothing sent yet.",
 }
 
@@ -463,9 +469,9 @@ def to_said(ctx, users, addresses, domain):
     return ", ".join([address_of(ctx, u, domain) for u in users] + list(addresses))
 
 
-@action("write")
-def write(ctx, to, subject, body, cc=""):
-    users, addresses, unknown = sort_out(ctx, to, cc)
+@action("send")
+def send_mail(ctx, to, subject, body, cc="", bcc=""):
+    users, addresses, unknown = sort_out(ctx, to, cc, bcc)
     if unknown:
         return error(
             f"Nobody here is called {', '.join(unknown)}; a name on this server, or an email address"
@@ -479,38 +485,66 @@ def write(ctx, to, subject, body, cc=""):
             f"which an administrator sets up under {SETTINGS_ARE}"
         )
     me = ctx.user.username
+    cc_users, cc_addresses, _ = sort_out(ctx, cc)
+    bcc_users, bcc_addresses, _ = sort_out(ctx, bcc)
+    to_users = [u for u in users if u not in cc_users and u not in bcc_users]
+    to_addresses = [
+        a for a in addresses if a not in cc_addresses and a not in bcc_addresses
+    ]
+    open_users = to_users + [u for u in cc_users if u not in bcc_users]
     fields = {
         "subject": str(subject).strip(),
         "kind": "external" if addresses else "internal",
     }
     if addresses:
-        fields["addresses"] = ", ".join(addresses)
+        fields["addresses"] = ", ".join(a for a in addresses if a not in bcc_addresses)
         fields["address"] = my_address(ctx, domain)
-        fields["remote"] = conversation_key(fields["subject"], addresses[0])
+        fields["remote"] = conversation_key(
+            fields["subject"], (to_addresses or addresses)[0]
+        )
+    said_to = to_said(ctx, to_users, to_addresses, domain)
+    said_cc = to_said(ctx, cc_users, cc_addresses, domain)
     thread = ctx.records.create(
         THREAD,
         fields,
-        scope="shared" if users else "personal",
-        members=users,
+        scope="shared" if open_users else "personal",
+        members=open_users,
         announce=False,
     )
-    cc_users, cc_addresses, _ = sort_out(ctx, cc)
     message = ctx.records.create(
         MESSAGE,
         thread=thread.id,
         sender=me,
-        to=to_said(
-            ctx,
-            [u for u in users if u not in cc_users],
-            [a for a in addresses if a not in cc_addresses],
-            domain,
-        ),
-        cc=to_said(ctx, cc_users, cc_addresses, domain),
+        to=said_to,
+        cc=said_cc,
         body=str(body),
         sent_at=ctx.now().isoformat(),
     )
+    # Somebody in Bcc gets a copy of their own, shared with nobody else: the
+    # thread the others are in never names them, and they never see each other.
+    for who in bcc_users:
+        if who in open_users:
+            continue
+        copy = ctx.records.create(
+            THREAD,
+            {"subject": fields["subject"], "kind": "internal"},
+            scope="shared",
+            members=[who],
+            announce=False,
+        )
+        ctx.records.create(
+            MESSAGE,
+            thread=copy.id,
+            sender=me,
+            to=said_to,
+            cc=said_cc,
+            body=str(body),
+            sent_at=ctx.now().isoformat(),
+        )
     if addresses:
-        send_domain(ctx, domain, thread, message, addresses)
+        send_domain(
+            ctx, domain, thread, message, to_addresses + cc_addresses, bcc=bcc_addresses
+        )
     return go("mail", thread=thread.id, folder="sent")
 
 
@@ -955,7 +989,7 @@ def disconnect(ctx):
 
 
 # -- mail out ---------------------------------------------------------------------------------
-def send(ctx, domain, sender, to, cc, subject, text):
+def send(ctx, domain, sender, to, cc, subject, text, bcc=()):
     """One mail through Cloudflare's Email Service; what went wrong is a MailError."""
     token = token_of(ctx, domain)
     message = {
@@ -966,6 +1000,8 @@ def send(ctx, domain, sender, to, cc, subject, text):
     }
     if cc:
         message["cc"] = list(cc)
+    if bcc:
+        message["bcc"] = list(bcc)
     cf(
         ctx,
         token,
@@ -975,11 +1011,11 @@ def send(ctx, domain, sender, to, cc, subject, text):
     )
 
 
-def send_domain(ctx, domain, thread, message, addresses):
+def send_domain(ctx, domain, thread, message, addresses, bcc=()):
     """Send a message from the person's address on the server's domain: True when
     Cloudflare took it, else the message says what went wrong."""
     cc = [a for a in names_in(message.get("cc")) if "@" in a]
-    to = [a for a in addresses if a not in cc]
+    to = [a for a in addresses if a not in cc and a not in bcc]
     try:
         send(
             ctx,
@@ -989,6 +1025,7 @@ def send_domain(ctx, domain, thread, message, addresses):
             cc,
             thread["subject"],
             message["body"],
+            bcc=[a for a in bcc if "@" in a],
         )
     except MailError as exc:
         ctx.records.patch(MESSAGE, message.id, status="failed", note=str(exc))

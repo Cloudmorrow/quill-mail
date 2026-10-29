@@ -12,16 +12,20 @@ the command line by Cloudmorrow itself.
 1. **Everybody has an address.** On a cloud called Bramcloud, Sam is
    `sam@bramcloud`: the inbox says so at the top. Mail to it never leaves
    the server. Nobody chooses anything; there is nothing to set up.
-2. **Write** to anybody on the server by name — `sam`, or `sam, kim` — or
-   by address, with a subject and the text. It is a thread the people in
-   it share, they get a push, and it is counted as unread until they open
-   it. What you started is in your **Sent**; it lands in your **Inbox**
-   when somebody answers.
-3. The inbox is a list: who it is from, the subject, the first line, when;
-   a dot on what you have not read, and the count of it on the folder.
-   Open a thread to read it, oldest first, and answer in the **Reply** box
-   under the last message: the answer stays with what it answers, for
-   everybody in the thread.
+2. **New mail** opens the form: To, with the people on the server offered
+   as you type (an address outside the server is taken too, with a word of
+   warning under the field), **Cc, Bcc** behind one link when you want
+   them, the subject and the text; then **Send**. It is a thread the
+   people in it share, they get a push, and it is counted as unread until
+   they open it. Somebody in Bcc gets a copy of their own that names
+   nobody else. What you sent is in your **Sent**; it lands in your
+   **Inbox** when somebody answers.
+3. The inbox is a list on the left — the subject, who, when, the first
+   line; a dot on what you have not read, and the count of it on the
+   folder — and the open mail on the right, lit in the list. On a phone
+   it is the list, then the mail. Answer in the **Reply** box under the
+   last message: the answer stays with what it answers, for everybody in
+   the thread.
 4. **Archive** takes a thread out of your inbox alone, and it comes back the
    moment somebody writes in it again. **Delete** moves it to your Trash.
    Whoever started a thread can delete it for good, from Trash, for
@@ -114,14 +118,16 @@ delete there or to use again.
 | | |
 | --- | --- |
 | Datamodels | introduces `mail.thread` (a conversation: a space the people in it share, or its owner's own when it is with the world outside), `mail.message` (one mail in a thread: from, to, cc, the text, when; a push to everybody in the thread, counted as unread), `mail.state` (where you filed a thread: inbox, archive, trash) and `mail.domain` (the server's domain on Cloudflare: one public record, changed by an administrator, its token sealed) |
-| Screens | Mail (a view: a folder's threads, or one thread with its messages and the reply box) — on the phone, the web app, the terminal, `cm mail`, and to your assistant; and Mail domain, an administrator's alone, drawn on Mail's sheet under Administration › Quills |
-| Actions | Write; on a thread: Reply, Archive, Delete, Move to inbox, Delete for good; for an administrator: Connect Cloudflare, Use this domain, Send a test mail to me, Disconnect |
+| Screens | Mail (a view: a folder's conversations on the left, the open one with its messages and the reply box on the right) — on the phone, the web app, the terminal, `cm mail`, and to your assistant; and Mail domain, an administrator's alone, drawn on Mail's sheet under Administration › Quills |
+| Actions | Send (To with the server's people offered, Cc and Bcc behind a link, a warning for an address outside); on a thread: Reply, Archive, Delete, Move to inbox, Delete for good; for an administrator: Connect Cloudflare, Use this domain, Send a test mail to me, Disconnect |
 | Jobs | `pull`, every minute, as the administrator who installed Mail: what the Worker took in, delivered to whoever it is for |
 | Code | `quill.py`, in the sandbox, as whoever uses it; reaches `api.cloudflare.com` and nothing else |
 
-Mail needs no other Quill and no runtime. It needs the core from v0.67.0:
-`ctx.cloud` (the cloud's name, for everybody's address) and a screen
-marked `admin = true` drawn under Administration › Quills, besides
+Mail needs no other Quill and no runtime. It needs the core from v0.68.0:
+the `split` layout, `cards(current=)`, a form field with `suggest =
+"people"`, `outside` and `extra`, besides v0.67.0's `ctx.cloud` (the
+cloud's name, for everybody's address) and a screen marked `admin = true`
+drawn under Administration › Quills, and
 v0.65.0's job delivery (`ctx.records.create(..., owner=, by=)`) and
 v0.60.0's spaces SDK.
 
