@@ -310,8 +310,9 @@ def whoami(ctx, domain):
 
 
 def listed(ctx, folder, opened=""):
-    """The list: New mail, the folders with what is unread counted, your
-    address, and a card per conversation — who, the subject, the first line."""
+    """The list: the folders with what is unread counted, your address, and a
+    card per conversation — who, the subject, the first line. New mail is the
+    screen's pen, beside the title (the manifest's `compose`)."""
     me = ctx.user.username
     now = ctx.now()
     domain = the_domain(ctx)
@@ -364,7 +365,6 @@ def listed(ctx, folder, opened=""):
             )
         )
     return ui.stack(
-        ui.button("New mail", action="send", tone="primary"),
         ui.row(*bar),
         ui.text(whoami(ctx, domain), style="small"),
         ui.cards(

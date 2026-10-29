@@ -117,11 +117,8 @@ def test_the_inbox_is_a_list_beside_the_open_mail_and_counts_what_is_unread(q):
     inbox = kim.view("mail")
     (split,) = inbox.find("split")
     assert split["show"] == "side"
-    assert (
-        "Inbox · 2" in inbox.buttons
-        and "Sent" in inbox.buttons
-        and "New mail" in inbox.buttons
-    )
+    assert "Inbox · 2" in inbox.buttons and "Sent" in inbox.buttons
+    assert "New mail" not in inbox.buttons  # the pen beside the title, not a button
     assert f"You are kim@{CLOUD}" in inbox.text()
     (cards,) = inbox.find("cards")
     assert (

@@ -11,7 +11,7 @@
 [quill]
 id = "mail"
 name = "Mail"
-version = "2.1.0"
+version = "2.2.0"
 summary = "Email: an inbox for everybody on your server, name@your-cloud between you, and name@your-own-domain to the world through Cloudflare, set up once by an administrator."
 category = "communication"
 icon = "envelope"
@@ -43,6 +43,8 @@ icon = "envelope"
 label = "Mail"
 view = "mail"
 model = "mail.thread"
+# The pen beside the title, as Notes and Tasks have it: a new mail.
+compose = { action = "send", label = "New mail" }
 
 # The server's own domain, through Cloudflare: an administrator's alone,
 # drawn on Mail's sheet under Administration › Quills and nowhere else.
