@@ -123,7 +123,7 @@ delete there or to use again.
 | Jobs | `pull`, every minute, as the administrator who installed Mail: what the Worker took in, delivered to whoever it is for |
 | Code | `quill.py`, in the sandbox, as whoever uses it; reaches `api.cloudflare.com` and nothing else |
 
-Mail needs no other Quill and no runtime. It needs the core from v0.68.0:
+Mail needs no other Quill and no runtime. It needs the core from v0.69.0:
 the `split` layout, `cards(current=)`, a form field with `suggest =
 "people"`, `outside` and `extra`, besides v0.67.0's `ctx.cloud` (the
 cloud's name, for everybody's address) and a screen marked `admin = true`
