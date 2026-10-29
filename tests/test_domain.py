@@ -145,8 +145,8 @@ def sent_through_cloudflare(q):
 
 
 def subjects(harness, folder="inbox"):
-    (table,) = harness.view("mail", folder=folder).find("table")
-    return [r["fields"]["subject"] for r in table["records"]]
+    (cards,) = harness.view("mail", folder=folder).find("cards")
+    return [r["fields"]["subject"] for r in cards["records"]]
 
 
 # -- setting it up, as an administrator ------------------------------------------------------
@@ -285,7 +285,7 @@ def test_an_answer_lands_in_the_conversation_and_a_reply_goes_out_from_my_addres
         method="POST",
         json=ok({"delivered": ["ada@example.net"]}),
     )
-    done = sam.act("write", to="ada@example.net", subject="Lunch?", body="Noon?")
+    done = sam.act("send", to="ada@example.net", subject="Lunch?", body="Noon?")
     assert done.ok, done
     (mine,) = sam.list(THREAD)
     assert mine["address"] == "sam@example.org" and mine["kind"] == "external"
@@ -327,7 +327,7 @@ def test_a_refusal_from_cloudflare_is_kept_on_the_message(q):
             "errors": [{"message": "domain not onboarded for sending"}],
         },
     )
-    assert sam.act("write", to="ada@example.net", subject="Hi", body="?").ok
+    assert sam.act("send", to="ada@example.net", subject="Hi", body="?").ok
     (message,) = sam.list(MESSAGE)
     assert message["status"] == "failed" and "not onboarded" in message["note"]
 
@@ -340,7 +340,7 @@ def test_with_a_domain_everybody_is_told_their_outside_address(q):
         in sam.view("mail").text()
     )
     # Mail to a person by their domain address stays on the server.
-    assert sam.act("write", to="kim@example.org", subject="Hi", body="?").ok
+    assert sam.act("send", to="kim@example.org", subject="Hi", body="?").ok
     (thread,) = q.as_user("kim").list(THREAD)
     assert thread["kind"] == "internal" and thread.members == ["kim"]
 

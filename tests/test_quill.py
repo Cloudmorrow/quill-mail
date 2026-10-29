@@ -20,12 +20,13 @@ def q():
     with Harness(".") as harness:
         harness.as_user("sam")
         harness.as_user("kim")
+        harness.as_user("ada")
         yield harness
 
 
 def rows(view):
-    (table,) = view.find("table")
-    return [r["fields"] for r in table["records"]]
+    (cards,) = view.find("cards")
+    return [r["fields"] for r in cards["records"]]
 
 
 def subjects(harness, folder="inbox"):
@@ -33,7 +34,7 @@ def subjects(harness, folder="inbox"):
 
 
 def write(harness, to, subject="Lunch?", body="Noon at the usual place?", **more):
-    done = harness.act("write", to=to, subject=subject, body=body, **more)
+    done = harness.act("send", to=to, subject=subject, body=body, **more)
     assert done.ok, done
     return next(
         e for e in done.effects if e.get("effect") == "go" or e.get("kind") == "go"
@@ -83,10 +84,10 @@ def test_a_name_nobody_has_is_an_error_and_so_is_nobody_at_all(q):
     sam = q.as_user("sam")
     assert (
         "Nobody here is called bob"
-        in sam.act("write", to="bob", subject="Hi", body="x").error
+        in sam.act("send", to="bob", subject="Hi", body="x").error
     )
-    assert "Who is it to" in sam.act("write", to="sam", subject="Hi", body="x").error
-    assert sam.act("write", to="kim", subject="Hi").error == "Body is needed"
+    assert "Who is it to" in sam.act("send", to="sam", subject="Hi", body="x").error
+    assert sam.act("send", to="kim", subject="Hi").error == "Body is needed"
 
 
 def test_archive_trash_and_restore_are_each_persons_own(q):
@@ -109,42 +110,62 @@ def test_archive_trash_and_restore_are_each_persons_own(q):
     assert kim.list(THREAD) == [] and sam.list(THREAD) == []
 
 
-def test_the_inbox_counts_what_is_unread_and_its_rows_go_to_the_thread(q):
+def test_the_inbox_is_a_list_beside_the_open_mail_and_counts_what_is_unread(q):
     sam, kim = q.as_user("sam"), q.as_user("kim")
     write(sam, "kim", subject="One", body="First line\nSecond line")
     write(sam, "kim", subject="Two")
     inbox = kim.view("mail")
+    (split,) = inbox.find("split")
+    assert split["show"] == "side"
     assert (
         "Inbox · 2" in inbox.buttons
         and "Sent" in inbox.buttons
-        and "Write" in inbox.buttons
+        and "New mail" in inbox.buttons
     )
     assert f"You are kim@{CLOUD}" in inbox.text()
-    (table,) = inbox.find("table")
+    (cards,) = inbox.find("cards")
     assert (
-        table["go"] == "mail"
-        and table["param"] == "thread"
-        and table["params"] == {"folder": "inbox"}
+        cards["go"] == "mail"
+        and cards["param"] == "thread"
+        and cards["params"] == {"folder": "inbox"}
+        and cards["title"] == "subject"
+        and cards["subtitle"] == "who"
+        and cards["body"] == "preview"
+        and cards.get("current") is None
     )
-    assert [c["label"] for c in table["columns"]] == [
-        "From",
-        "Subject",
-        "Preview",
-        "When",
-    ]
-    assert [r["from"] for r in rows(inbox)] == [f"● sam@{CLOUD}", f"● sam@{CLOUD}"]
+    assert [r["who"].split(" · ")[0] for r in rows(inbox)] == [f"sam@{CLOUD}"] * 2
+    assert all(r["subject"].startswith("● ") for r in rows(inbox))
     assert sorted(r["preview"] for r in rows(inbox)) == [
         "First line",
         "Noon at the usual place?",
     ]
-    # Read, the count goes; Sent says who it went to.
-    kim.view("mail", thread=kim.list(THREAD)[0].id)
+    # Open, the mail is on the right, its card lit, and the count goes.
+    first = kim.list(THREAD)[0]
+    opened = kim.view("mail", thread=first.id)
+    (split,) = opened.find("split")
+    assert split["show"] == "main" and opened.find("cards")[0]["current"] == first.id
     assert "Inbox · 1" in kim.view("mail").buttons
-    (table,) = sam.view("mail", folder="sent").find("table")
-    assert table["columns"][0]["label"] == "To"
-    assert [r["from"] for r in rows(sam.view("mail", folder="sent"))] == [
-        f"kim@{CLOUD}"
-    ] * 2
+    # Sent says who it went to.
+    assert [
+        r["who"].split(" · ")[0] for r in rows(sam.view("mail", folder="sent"))
+    ] == [f"kim@{CLOUD}"] * 2
+
+
+def test_cc_and_bcc(q):
+    sam, kim, ada = q.as_user("sam"), q.as_user("kim"), q.as_user("ada")
+    done = sam.act("send", to="kim", cc=q.user, bcc="ada", subject="Quiet", body="Shh")
+    assert done.ok, done
+    # Kim and the administrator share the thread and see each other; Ada is in it to nobody.
+    (shared,) = kim.list(THREAD)
+    assert sorted(shared.members) == sorted(["kim", q.user])
+    (message,) = kim.list(MESSAGE)
+    assert message["to"] == f"kim@{CLOUD}" and message["cc"] == f"{q.user}@{CLOUD}"
+    assert "ada" not in kim.view("mail", thread=shared.id).text()
+    # Ada has a copy of her own, with the same To and Cc, shared with nobody else.
+    (copy,) = ada.list(THREAD)
+    assert copy.id != shared.id and copy.members == ["ada"]
+    assert ada.list(MESSAGE)[0]["to"] == f"kim@{CLOUD}"
+    assert subjects(ada) == ["● Quiet"] and subjects(sam, "sent") == ["Quiet", "Quiet"]
 
 
 # -- addresses ------------------------------------------------------------------------------
@@ -160,13 +181,13 @@ def test_everybody_is_name_at_the_cloud_and_mail_to_it_stays_here(q):
 
 def test_mail_to_an_outside_address_needs_the_servers_domain(q):
     sam = q.as_user("sam")
-    done = sam.act("write", to="ada@example.net", subject="Hi", body="?")
+    done = sam.act("send", to="ada@example.net", subject="Hi", body="?")
     assert not done.ok and "Administration › Quills › Mail" in done.error
     assert sam.list(THREAD) == []
     # And a name on no host at all is nobody here.
     assert (
         "Nobody here is called kim@elsewhere"
-        in sam.act("write", to="kim@elsewhere", subject="Hi", body="?").error
+        in sam.act("send", to="kim@elsewhere", subject="Hi", body="?").error
     )
     # Ordinary people are told the server has no domain; an administrator, where to set it up.
     assert "an administrator can give it a domain" in sam.view("mail").text()
