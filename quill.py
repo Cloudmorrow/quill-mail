@@ -857,9 +857,12 @@ def connect(ctx, token):
         else "Connected; the token sees no domain"
     )
     if found is None:
-        ctx.records.create(DOMAIN, scope="public", token=token, status=status)
+        found = ctx.records.create(DOMAIN, scope="public", token=token, status=status)
     else:
-        ctx.records.patch(DOMAIN, found.id, token=token, status=status)
+        found = ctx.records.patch(DOMAIN, found.id, token=token, status=status)
+    # One domain to see is the domain: set up at once, nothing to choose.
+    if len(zones) == 1 and zones[0].get("id"):
+        return set_up_zone(ctx, found, str(zones[0]["id"]))
     return redraw()
 
 
@@ -870,7 +873,12 @@ def use_domain(ctx, zone):
     domain = any_domain(ctx)
     if domain is None:
         return error("Connect Cloudflare first")
-    zone = str(zone).strip()
+    return set_up_zone(ctx, domain, str(zone).strip())
+
+
+def set_up_zone(ctx, domain, zone):
+    """Make *zone* the server's: Email Routing on, the namespace and the Worker in
+    the account, the catch-all at the Worker. Redraws, or says what went wrong."""
     try:
         token = token_of(ctx, domain)
         found = cf(ctx, token, f"/zones/{zone}") or {}
@@ -892,6 +900,25 @@ def use_domain(ctx, zone):
             if domain.get("account") == account
             else ""
         )
+        if not namespace:
+            # One made before — a domain set up, forgotten, set up again — is
+            # found by its name; Cloudflare keeps one of a name per account.
+            had = (
+                cf(
+                    ctx,
+                    token,
+                    f"/accounts/{account}/storage/kv/namespaces?per_page=100",
+                )
+                or []
+            )
+            namespace = next(
+                (
+                    str(ns.get("id") or "")
+                    for ns in had
+                    if str(ns.get("title") or "") == WORKER
+                ),
+                "",
+            )
         if not namespace:
             made = cf(
                 ctx,

@@ -39,7 +39,14 @@ def connect(q):
                     "name": "example.org",
                     "status": "active",
                     "account": {"id": ACCT, "name": "Jimmi"},
-                }
+                },
+                # A second one, so there is something to choose: one alone is set up at once.
+                {
+                    "id": "z2",
+                    "name": "other.org",
+                    "status": "active",
+                    "account": {"id": ACCT, "name": "Jimmi"},
+                },
             ]
         ),
     )
@@ -50,12 +57,21 @@ def connect(q):
     return done
 
 
-def set_up(q):
-    connect(q)
+def zone_stubs(q, *, namespaces=()):
+    """What setting example.org up asks Cloudflare; *namespaces* is what the account has already."""
     q.fetch.add(
         f"{CF}/zones/{ZONE}",
         json=ok({"id": ZONE, "name": "example.org", "account": {"id": ACCT}}),
     )
+    q.fetch.add(
+        f"{CF}/accounts/{ACCT}/storage/kv/namespaces?per_page=100",
+        json=ok([{"id": i, "title": t} for i, t in namespaces]),
+    )
+
+
+def set_up(q):
+    connect(q)
+    zone_stubs(q)
     q.fetch.add(
         f"{CF}/zones/{ZONE}/email/routing",
         json=ok({"enabled": False, "status": "unconfigured"}),
@@ -240,6 +256,82 @@ def test_disconnecting_forgets_the_domain(q):
     set_up(q)
     assert q.act("disconnect").ok
     assert q.list(DOMAIN) == [] and "Connect Cloudflare" in q.view("settings").buttons
+
+
+def test_set_up_again_the_namespace_made_before_is_found_not_made_twice(q):
+    set_up(q)
+    assert q.act("disconnect").ok
+    connect(q)
+    q.fetch.sent.clear()
+    zone_stubs(q, namespaces=[("other", "something-else"), (NS, "cloudmorrow-mail")])
+    q.fetch.add(f"{CF}/zones/{ZONE}/email/routing", json=ok({"enabled": True}))
+    q.fetch.add(
+        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail",
+        method="PUT",
+        json=ok({"id": "x"}),
+    )
+    q.fetch.add(
+        f"{CF}/zones/{ZONE}/email/routing/rules/catch_all",
+        method="PUT",
+        json=ok({"enabled": True}),
+    )
+    done = q.act("use-domain", zone=ZONE)
+    assert done.ok, done
+    (domain,) = q.list(DOMAIN)
+    assert domain["namespace"] == NS
+    posted = [
+        s
+        for s in q.fetch.sent
+        if s["method"] == "POST" and s["url"].endswith("/storage/kv/namespaces")
+    ]
+    assert posted == [], "no second namespace of that name"
+
+
+def test_one_domain_to_see_is_set_up_the_moment_cloudflare_is_connected(q):
+    q.fetch.add(
+        f"{CF}/zones?per_page=50",
+        json=ok(
+            [
+                {
+                    "id": ZONE,
+                    "name": "example.org",
+                    "status": "active",
+                    "account": {"id": ACCT},
+                }
+            ]
+        ),
+    )
+    zone_stubs(q)
+    q.fetch.add(f"{CF}/zones/{ZONE}/email/routing", json=ok({"enabled": False}))
+    q.fetch.add(
+        f"{CF}/zones/{ZONE}/email/routing/enable",
+        method="POST",
+        json=ok({"enabled": True}),
+    )
+    q.fetch.add(
+        f"{CF}/accounts/{ACCT}/storage/kv/namespaces",
+        method="POST",
+        json=ok({"id": NS}),
+    )
+    q.fetch.add(
+        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail",
+        method="PUT",
+        json=ok({"id": "x"}),
+    )
+    q.fetch.add(
+        f"{CF}/zones/{ZONE}/email/routing/rules/catch_all",
+        method="PUT",
+        json=ok({"enabled": True}),
+    )
+    done = q.act("connect", token="cf-token-1")
+    assert done.ok, done
+    (domain,) = q.list(DOMAIN)
+    assert (
+        domain["domain"] == "example.org"
+        and domain["namespace"] == NS
+        and domain["routing"] == "on"
+    )
+    assert "Use this domain" not in q.view("settings").buttons
 
 
 # -- mail in -------------------------------------------------------------------------------
