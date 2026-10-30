@@ -30,7 +30,6 @@ def ok(result=None, **more):
 
 
 def connect(q):
-    q.fetch.add(f"{CF}/user/tokens/verify", json=ok({"status": "active"}))
     q.fetch.add(
         f"{CF}/zones?per_page=50",
         json=ok(
@@ -186,11 +185,25 @@ def test_connecting_keeps_the_token_sealed_and_lists_the_zones(q):
 
 def test_a_token_cloudflare_refuses_is_said(q):
     q.fetch.add(
-        f"{CF}/user/tokens/verify",
+        f"{CF}/zones?per_page=50",
         status=401,
-        json={"success": False, "errors": [{"message": "Invalid token"}]},
+        json={"success": False, "errors": [{"message": "Invalid API Token"}]},
     )
-    assert "Invalid token" in q.act("connect", token="bad").error
+    said = q.act("connect", token="bad").error
+    assert "Invalid API Token" in said and "not the Global API Key" in said
+
+
+def test_a_token_pasted_with_bearer_is_taken_as_the_token_and_proved_by_its_zones(q):
+    """No /user/tokens/verify: a token made under an account's API Tokens fails
+    there though it is good. Listing the zones proves it, and is what Mail needs."""
+    q.fetch.add(f"{CF}/zones?per_page=50", json=ok([]))
+    done = q.act("connect", token="Bearer cf-token-2")
+    assert done.ok, done
+    (domain,) = q.list(DOMAIN)
+    assert q.get(DOMAIN, domain.id)["token"] == "cf-token-2"
+    assert domain["status"] == "Connected; the token sees no domain"
+    assert all("/user/tokens/verify" not in s["url"] for s in q.fetch.sent)
+    assert q.fetch.sent[-1]["headers"].get("Authorization") == "Bearer cf-token-2"
 
 
 def test_using_a_domain_turns_routing_on_and_puts_the_worker_in_place(q):

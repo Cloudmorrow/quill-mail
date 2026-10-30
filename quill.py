@@ -834,13 +834,22 @@ def connect(ctx, token):
     if (refused := administrators_only(ctx)) is not None:
         return refused
     token = str(token).strip()
+    if token.lower().startswith("bearer "):
+        token = token[len("bearer ") :].strip()
+    # The token is proved by what it is for: listing the zones. Cloudflare's
+    # /user/tokens/verify knows only a person's tokens, and refuses one made
+    # under an account's API Tokens with "Invalid API Token", though the
+    # token is good; the zones are what Mail needs either way.
     try:
-        verified = cf(ctx, token, "/user/tokens/verify") or {}
-        if str(verified.get("status") or "") != "active":
-            raise MailError(f"the token is {verified.get('status') or 'not active'}")
         zones = cf(ctx, token, "/zones?per_page=50") or []
     except MailError as exc:
-        return error(f"Cloudflare did not take the token: {exc}")
+        print(f"connect: Cloudflare did not take the token: {exc}")
+        return error(
+            f"Cloudflare did not take the token: {exc}. Paste the token itself, as Cloudflare showed it the "
+            "once — not the Global API Key, and without 'Bearer' — made under My Profile › API Tokens or "
+            "under the account's API Tokens, with the five permissions listed here, on the domain's zone "
+            "and its account."
+        )
     found = any_domain(ctx)
     status = (
         f"Connected; {plural(len(zones), 'domain')} to choose from"
