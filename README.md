@@ -59,46 +59,65 @@ Email Sending is in beta at Cloudflare. Without the paid plan mail comes
 in; what goes out is refused by Cloudflare and the thread says so.
 
 **Before you start.** The domain is on Cloudflare: its nameservers are
-Cloudflare's. Then, at Cloudflare under *Compute › Email Service › Email
-Sending*, **onboard the domain**: Cloudflare adds the SPF, DKIM and DMARC
-records itself. (Receiving needs no such step; Mail turns Email Routing
-on for you.)
+Cloudflare's. That is all receiving needs; Mail turns Email Routing on
+for you. Sending needs two more things, both in the Cloudflare dashboard
+under *Compute › Email Service › Email Sending*, and both can be done
+after connecting:
+
+- **Enable Email Sending** on the account (the Workers Paid plan).
+- **Onboard the domain**: press *Onboard Domain*, pick the domain, *Done*.
+  Cloudflare puts MX, SPF and DKIM records on `cf-bounce.your-domain` and a
+  DMARC record on `_dmarc`, and they are live within fifteen minutes.
+  Enabling the feature alone is not enough: until the domain is onboarded
+  Cloudflare refuses every send with "sending disabled for this zone".
 
 **The token.** At Cloudflare, *My Profile › API Tokens › Create Token ›
-Custom token*, with these permissions:
+Custom token*. Under Permissions, add these five rows; under Resources,
+*All accounts* and *All zones* is simplest:
 
-| where | permission |
-| --- | --- |
-| Zone | Zone · Read |
-| Zone | Email Routing Rules · Edit |
-| Account | Workers Scripts · Edit |
-| Account | Workers KV Storage · Edit |
-| Account | Email Sending · Edit |
+| where | permission | what Mail does with it |
+| --- | --- | --- |
+| Account | Workers Scripts · Edit | the small Worker that takes the mail in |
+| Account | Workers KV Storage · Edit | the namespace the Worker puts mail in, read and cleared every minute |
+| Account | Email Sending · Edit | mail out from the domain |
+| Zone | Zone · Read | to list your domains |
+| Zone | Email Routing Rules · Edit | Email Routing on, the catch-all at the Worker |
 
-Zone Resources: the zone of the domain (or all zones). Account
-Resources: the account it is in. Copy the token: it is shown once.
+If getting the five right is a fight, a token allowed more works just as
+well: Mail only ever does these five things with it. It can do more in
+your account if it leaks, so keep it to the five when you can. The Global
+API Key is not a token and does not work. Copy the token when it is shown:
+it is shown once, and Mail keeps it sealed.
 
 **Under Administration › Quills, on Mail's sheet** (an administrator sees
-it; nobody else does; in the terminal, `s` on Mail opens it):
+it; nobody else does; the gear on Mail's row in the list opens it, and in
+the terminal `s` on Mail does):
 
 1. **Connect Cloudflare** with the token. It is kept sealed, listed to
-   nobody, read only by Mail's own code.
-2. The domains the token can see are listed. **Use this domain** on the
-   one for mail. Mail then turns Email Routing on for the zone, makes a
-   KV namespace called `cloudmorrow-mail` in the account, puts a small
-   Worker of the same name there (`worker.js` in this repository: it takes
-   every mail for the domain and puts it in the namespace, as it came),
-   and points the zone's catch-all rule at the Worker. Everything is in
-   your account, under those names, where you can read and remove it.
-3. From then on the server pulls the namespace once a minute and delivers
+   nobody, read only by Mail's own code. A token that sees one domain
+   sets that domain up at once; with more, the domains are listed and
+   **Use this domain** picks one. Mail then turns Email Routing on for the
+   zone, makes a KV namespace called `cloudmorrow-mail` in the account (or
+   finds the one it made before), puts a small Worker of the same name
+   there (`worker.js` in this repository: it takes every mail for the
+   domain and puts it in the namespace, as it came), and points the zone's
+   catch-all rule at the Worker. Everything is in your account, under
+   those names, where you can read and remove it.
+2. From then on the server pulls the namespace once a minute and delivers
    each mail to the person it is addressed to: a thread of their own,
    unread, with a push. A mail to an address nobody has is dropped and
    said on the sheet. The postman — the job, run as the administrator —
    sees nothing of anybody's mail once delivered.
-4. **Send a test mail to me**: out through Cloudflare, back in through the
-   Worker, in your inbox within two minutes if everything is in place. If
-   it is not sent, the reason is on the sheet; if it is sent and never
-   arrives, Email Routing's log at Cloudflare says where it went.
+3. **Send a test mail to me**: out through Cloudflare, back in through the
+   Worker, in your inbox within two minutes if everything is in place. How
+   it went stays under the button until the next one: *Sent*, with the
+   time; or *Not sent*, with Cloudflare's refusal read for you — the
+   domain not onboarded yet, the account not entitled, sending paused —
+   and what to do. If it is sent and never arrives, Email Routing's log
+   at Cloudflare says where it went.
+4. **Set the domain up again** redoes the routing, the Worker and the
+   catch-all, and stamps the status with the time. It has nothing to do
+   with sending.
 
 **What everybody gets.** Their address is `username@the-domain`, said at
 the top of their inbox beside their address on the cloud, and on their
