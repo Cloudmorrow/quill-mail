@@ -828,7 +828,35 @@ def settings(ctx):
                 else "not yet",
             ),
         ),
-        ui.text(str(domain.get("status") or ""), style="muted"),
+        # Three lines that stay: how the set-up went, what comes in, what goes out.
+        said_line(
+            "Not set up"
+            if str(domain.get("setup") or "").startswith("Not set up")
+            else "Set up",
+            "bad"
+            if str(domain.get("setup") or "").startswith("Not set up")
+            else "good",
+            after_colon(domain.get("setup"))
+            or "Email Routing is on and the Worker is in place",
+        ),
+        said_line(
+            "Mail in",
+            "bad"
+            if str(domain.get("status") or "").startswith("the pull stopped")
+            else "neutral",
+            (
+                f"{domain.get('status')}; last pull {said_when(str(domain.get('pulled_at') or ''), ctx.now())}"
+                if domain.get("pulled_at")
+                else "the pull has not run yet; it runs once a minute, as the administrator who installed Mail"
+            ),
+        ),
+        sending_line(str(domain["sending"]))
+        if domain.get("sending")
+        else said_line(
+            "Mail out",
+            "neutral",
+            "not tried yet: Send a test mail to me says whether sending works",
+        ),
         ui.text(
             "Everybody here has an address on it; mail to it lands in their inbox within a minute, and what they "
             "write to an outside address goes from it. "
@@ -845,18 +873,26 @@ def settings(ctx):
             ),
             ui.button("Disconnect", action="disconnect", tone="danger"),
         ),
-        # How the last test mail went, under the button, until the next one.
-        sending_line(str(domain["sending"])) if domain.get("sending") else [],
     )
+
+
+def said_line(mark, tone, words):
+    """A mark and the words beside it: one line of the sheet's standing status."""
+    return ui.row(ui.badge(mark, tone=tone), ui.text(str(words), style="muted"))
+
+
+def after_colon(said):
+    said = str(said or "")
+    return said.split(": ", 1)[1] if ": " in said else said
 
 
 def sending_line(said):
     """ "Not sent: …" or "Sent to …" as a mark and the words beside it."""
     failed = said.startswith("Not sent")
-    rest = said.split(": ", 1)[1] if failed and ": " in said else said
-    return ui.row(
-        ui.badge("Not sent" if failed else "Sent", tone="bad" if failed else "good"),
-        ui.text(rest, style="muted"),
+    return said_line(
+        "Not sent" if failed else "Sent",
+        "bad" if failed else "good",
+        after_colon(said) if failed else said,
     )
 
 
@@ -1006,8 +1042,13 @@ def set_up_zone(ctx, domain, zone):
             },
         )
     except MailError as exc:
-        ctx.records.patch(DOMAIN, domain.id, status=f"Not set up: {exc}")
-        return error(f"Not set up: {exc}")
+        # Said on the page, where it stays, not as a toast that goes.
+        ctx.records.patch(
+            DOMAIN,
+            domain.id,
+            setup=f"Not set up at {ctx.now().strftime('%H:%M')}: {exc}",
+        )
+        return redraw()
     ctx.records.patch(
         DOMAIN,
         domain.id,
@@ -1017,13 +1058,9 @@ def set_up_zone(ctx, domain, zone):
         namespace=namespace,
         worker=worker,
         routing="on",
-        status=(
-            "Ready: Email Routing is on and the Worker is in place"
-            + (
-                f" (set up again at {ctx.now().strftime('%H:%M')})"
-                if domain.get("zone") == zone
-                else ""
-            )
+        setup=(
+            f"Set up at {ctx.now().strftime('%H:%M')}: Email Routing is on, the Worker {worker} is in "
+            "the account, and the domain's catch-all points at it"
         ),
     )
     return redraw()

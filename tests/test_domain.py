@@ -277,8 +277,48 @@ def test_setting_the_domain_up_again_says_so_with_the_time(q):
     assert q.act("use-domain", zone=ZONE).ok
     (domain,) = q.list(DOMAIN)
     assert (
-        domain["status"].startswith("Ready") and "set up again at" in domain["status"]
+        domain["setup"].startswith("Set up at")
+        and "catch-all points at it" in domain["setup"]
     )
+    assert q.view("settings").find("badge")[0]["text"] == "Set up"
+
+
+def test_a_set_up_that_fails_is_said_on_the_page_not_as_a_toast(q):
+    connect(q)
+    q.fetch.add(
+        f"{CF}/zones/{ZONE}",
+        status=403,
+        json={
+            "success": False,
+            "errors": [
+                {"code": 9109, "message": "Unauthorized to access requested resource"}
+            ],
+        },
+    )
+    done = q.act("use-domain", zone=ZONE)
+    assert (
+        done.ok
+        and [e["effect"] for e in done.effects] == ["redraw"]
+        and done.toast == ""
+    )
+    (domain,) = q.list(DOMAIN)
+    assert (
+        domain["setup"].startswith("Not set up at")
+        and "Unauthorized" in domain["setup"]
+    )
+    assert not domain.get("zone")  # nothing half-done
+
+
+def test_the_sheet_has_three_standing_lines_for_set_up_mail_in_and_mail_out(q):
+    set_up(q)
+    said = q.view("settings")
+    marks = [(b["text"], b["tone"]) for b in said.find("badge")]
+    assert marks == [
+        ("Set up", "good"),
+        ("Mail in", "neutral"),
+        ("Mail out", "neutral"),
+    ]
+    assert "the pull has not run yet" in said.text() and "not tried yet" in said.text()
 
 
 def test_set_up_again_the_namespace_made_before_is_found_not_made_twice(q):
@@ -514,7 +554,7 @@ def test_a_refused_test_mail_stays_under_the_button_and_says_what_to_do(q):
     )
     assert "Onboard Domain and pick example.org" in domain["sending"]
     said = q.view("settings")
-    (badge,) = said.find("badge")
+    badge = said.find("badge")[2]  # the third standing line: Mail out
     assert badge["tone"] == "bad" and badge["text"] == "Not sent"
     assert "Cloudflare said: Email sending disabled (10203)" in said.text()
     # 10105 is the account: not entitled, the Workers Paid plan.
@@ -537,7 +577,7 @@ def test_a_refused_test_mail_stays_under_the_button_and_says_what_to_do(q):
     )
     assert q.act("test-mail").ok
     said = q.view("settings")
-    (badge,) = said.find("badge")
+    badge = said.find("badge")[2]  # the third standing line: Mail out
     assert (
         badge["tone"] == "good"
         and badge["text"] == "Sent"
