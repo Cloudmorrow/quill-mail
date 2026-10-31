@@ -6,7 +6,7 @@
 
 [datamodel]
 id = "mail.domain"
-version = 2
+version = 3
 label = "Mail domain"
 description = "The server's mail domain on Cloudflare: everybody's address on it, what comes in, what goes out."
 scopes = ["public"]
@@ -21,6 +21,7 @@ token = { kind = "string", required = true, secret = true, description = "The Cl
 namespace = { kind = "string", description = "The KV namespace the Worker puts mail in" }
 worker = { kind = "string", description = "The Worker that takes the mail in" }
 routing = { kind = "enum", values = ["off", "on"], labels = ["Off", "On"], default = "off", description = "Email Routing on the zone, pointed at the Worker" }
+setup = { kind = "string", description = "How the last set-up went, and when: the routing, the Worker, the catch-all" }
 status = { kind = "string", description = "What the last pull said" }
 sending = { kind = "string", description = "How the last test mail went: sent, or why Cloudflare would not" }
 pulled_at = { kind = "datetime", label = "Last pull" }
