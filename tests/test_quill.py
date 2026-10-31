@@ -116,7 +116,12 @@ def test_the_inbox_is_a_list_beside_the_open_mail_and_counts_what_is_unread(q):
     write(sam, "kim", subject="Two")
     inbox = kim.view("mail")
     (split,) = inbox.find("split")
-    assert split["show"] == "side"
+    assert split["show"] == "side" and "back" not in split
+    # The folder you are in is marked.
+    buttons = {b["label"]: b for b in inbox.find("button")}
+    assert (
+        buttons["Inbox · 2"].get("current") is True and "current" not in buttons["Sent"]
+    )
     assert "Inbox · 2" in inbox.buttons and "Sent" in inbox.buttons
     assert "New mail" not in inbox.buttons  # the pen beside the title, not a button
     assert f"You are kim@{CLOUD}" in inbox.text()
@@ -141,6 +146,8 @@ def test_the_inbox_is_a_list_beside_the_open_mail_and_counts_what_is_unread(q):
     opened = kim.view("mail", thread=first.id)
     (split,) = opened.find("split")
     assert split["show"] == "main" and opened.find("cards")[0]["current"] == first.id
+    # The screen's back button goes back to the folder; no Back button of Mail's own.
+    assert split["back"] == {"folder": "inbox"} and "Back" not in opened.buttons
     assert "Inbox · 1" in kim.view("mail").buttons
     # Sent says who it went to.
     assert [

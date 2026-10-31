@@ -22,8 +22,9 @@ the command line by Cloudmorrow itself.
    **Inbox** when somebody answers.
 3. The inbox is a list on the left — the subject, who, when, the first
    line; a dot on what you have not read, and the count of it on the
-   folder — and the open mail on the right, lit in the list. On a phone
-   it is the list, then the mail. Answer in the **Reply** box under the
+   folder, the folder you are in marked — and the open mail on the right,
+   lit in the list. On a phone it is the list, then the mail, with the
+   screen's back button to the list as a page of a document has. Answer in the **Reply** box under the
    last message: the answer stays with what it answers, for everybody in
    the thread.
 4. **Archive** takes a thread out of your inbox alone, and it comes back the
