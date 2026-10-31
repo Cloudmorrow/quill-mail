@@ -258,6 +258,27 @@ def test_disconnecting_forgets_the_domain(q):
     assert q.list(DOMAIN) == [] and "Connect Cloudflare" in q.view("settings").buttons
 
 
+def test_setting_the_domain_up_again_says_so_with_the_time(q):
+    set_up(q)
+    zone_stubs(q, namespaces=[(NS, "cloudmorrow-mail")])
+    q.fetch.add(f"{CF}/zones/{ZONE}/email/routing", json=ok({"enabled": True}))
+    q.fetch.add(
+        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail",
+        method="PUT",
+        json=ok({"id": "x"}),
+    )
+    q.fetch.add(
+        f"{CF}/zones/{ZONE}/email/routing/rules/catch_all",
+        method="PUT",
+        json=ok({"enabled": True}),
+    )
+    assert q.act("use-domain", zone=ZONE).ok
+    (domain,) = q.list(DOMAIN)
+    assert (
+        domain["status"].startswith("Ready") and "set up again at" in domain["status"]
+    )
+
+
 def test_set_up_again_the_namespace_made_before_is_found_not_made_twice(q):
     set_up(q)
     assert q.act("disconnect").ok
@@ -474,19 +495,35 @@ def test_a_refused_test_mail_stays_under_the_button_and_says_what_to_do(q):
         f"{CF}/accounts/{ACCT}/email/sending/send",
         method="POST",
         status=403,
-        json={"success": False, "errors": [{"message": "Email sending disabled"}]},
+        json={
+            "success": False,
+            "errors": [{"code": 10203, "message": "Email sending disabled"}],
+        },
     )
     done = q.act("test-mail")
     assert done.ok and [e["effect"] for e in done.effects] == ["redraw"]
     (domain,) = q.list(DOMAIN)
+    # 10203 is per zone: the account's switch is on, the domain is not onboarded.
     assert domain["sending"].startswith(
-        "Not sent: email sending is disabled on the Cloudflare account"
+        "Not sent: this domain is not onboarded for sending yet"
     )
-    assert "Compute › Email Service › Email Sending" in domain["sending"]
+    assert "Onboard Domain and pick example.org" in domain["sending"]
     said = q.view("settings")
     (badge,) = said.find("badge")
     assert badge["tone"] == "bad" and badge["text"] == "Not sent"
-    assert "Cloudflare said: Email sending disabled" in said.text()
+    assert "Cloudflare said: Email sending disabled (10203)" in said.text()
+    # 10105 is the account: not entitled, the Workers Paid plan.
+    q.fetch.add(
+        f"{CF}/accounts/{ACCT}/email/sending/send",
+        method="POST",
+        status=403,
+        json={
+            "success": False,
+            "errors": [{"code": 10105, "message": "Account not entitled"}],
+        },
+    )
+    assert q.act("test-mail").ok
+    assert "not entitled to Email Sending" in q.list(DOMAIN)[0]["sending"]
     # A later success replaces it.
     q.fetch.add(
         f"{CF}/accounts/{ACCT}/email/sending/send",
