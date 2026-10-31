@@ -702,7 +702,13 @@ def cf(
     if not response.ok or not data.get("success", response.ok):
         errors = data.get("errors") or []
         said = (
-            "; ".join(str(e.get("message") or e) for e in errors if e)
+            "; ".join(
+                f"{e.get('message') or e} ({e['code']})"
+                if isinstance(e, dict) and e.get("code")
+                else str(e.get("message") or e)
+                for e in errors
+                if e
+            )
             or f"Cloudflare answered {response.status}"
         )
         if response.status in (401, 403) and not errors:
@@ -997,7 +1003,14 @@ def set_up_zone(ctx, domain, zone):
         namespace=namespace,
         worker=WORKER,
         routing="on",
-        status="Ready: Email Routing is on and the Worker is in place",
+        status=(
+            "Ready: Email Routing is on and the Worker is in place"
+            + (
+                f" (set up again at {ctx.now().strftime('%H:%M')})"
+                if domain.get("zone") == zone
+                else ""
+            )
+        ),
     )
     return redraw()
 
@@ -1022,7 +1035,9 @@ def test_mail(ctx):
         )
     except MailError as exc:
         # Said under the button, where it stays, in words that say what to do.
-        ctx.records.patch(DOMAIN, domain.id, sending=sending_said(str(exc)))
+        ctx.records.patch(
+            DOMAIN, domain.id, sending=sending_said(str(exc), str(domain["domain"]))
+        )
         return redraw()
     when = ctx.now().strftime("%H:%M")
     ctx.records.patch(
@@ -1033,15 +1048,30 @@ def test_mail(ctx):
     return redraw()
 
 
-def sending_said(said):
-    """Cloudflare's refusal of a mail, as the administrator should read it."""
+def sending_said(said, domain_name=""):
+    """Cloudflare's refusal of a mail, as the administrator should read it: by the
+    code Cloudflare gives (its REST API reference), else by its words."""
     lowered = said.lower()
-    if "disabled" in lowered or "not enabled" in lowered:
+    where = f" and pick {domain_name}" if domain_name else ""
+    if (
+        "(10203)" in said
+        or "sending_disabled" in lowered
+        or "sending disabled" in lowered
+    ):
+        # Per zone: the switch on the account is on, the domain is not onboarded.
         return (
-            "Not sent: email sending is disabled on the Cloudflare account. Enable it at Cloudflare under "
-            "Compute › Email Service › Email Sending (it needs the Workers Paid plan), onboard the domain "
-            f"there, and try again. Cloudflare said: {said}"
+            "Not sent: this domain is not onboarded for sending yet. At Cloudflare, under Compute › Email "
+            f"Service › Email Sending, press Onboard Domain{where}, then Done: Cloudflare puts the records on "
+            "cf-bounce under the domain. Give it five to fifteen minutes, then try again. "
+            f"Cloudflare said: {said}"
         )
+    if "(10105)" in said or "not_entitled" in lowered or "not entitled" in lowered:
+        return (
+            "Not sent: the Cloudflare account is not entitled to Email Sending. Enable it at Cloudflare under "
+            f"Compute › Email Service › Email Sending; it needs the Workers Paid plan. Cloudflare said: {said}"
+        )
+    if "(10207)" in said or "suspended" in lowered or "paused" in lowered:
+        return f"Not sent: Email Sending is paused for the Cloudflare account; Cloudflare's dashboard says why. Cloudflare said: {said}"
     if (
         "onboard" in lowered
         or "not verified" in lowered
@@ -1050,7 +1080,7 @@ def sending_said(said):
     ):
         return (
             "Not sent: the domain is not onboarded for sending. At Cloudflare, under Compute › Email Service › "
-            f"Email Sending, add the domain and let Cloudflare set its records. Cloudflare said: {said}"
+            f"Email Sending, press Onboard Domain{where}. Cloudflare said: {said}"
         )
     if "token" in lowered or "authentication" in lowered or "permission" in lowered:
         return (
