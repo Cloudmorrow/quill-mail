@@ -458,9 +458,46 @@ def test_a_test_mail_goes_from_my_address_to_itself(q):
         json=ok({"delivered": [f"{q.user}@example.org"]}),
     )
     done = q.act("test-mail")
-    assert done.ok and "within two minutes" in done.toast
+    assert done.ok and [e["effect"] for e in done.effects] == ["redraw"]
     (sent,) = sent_through_cloudflare(q)
     assert (
         sent["to"] == [f"{q.user}@example.org"]
         and sent["from"]["address"] == f"{q.user}@example.org"
+    )
+    # How it went stays on the page, under the button.
+    assert "within two minutes" in q.view("settings").text()
+
+
+def test_a_refused_test_mail_stays_under_the_button_and_says_what_to_do(q):
+    set_up(q)
+    q.fetch.add(
+        f"{CF}/accounts/{ACCT}/email/sending/send",
+        method="POST",
+        status=403,
+        json={"success": False, "errors": [{"message": "Email sending disabled"}]},
+    )
+    done = q.act("test-mail")
+    assert done.ok and [e["effect"] for e in done.effects] == ["redraw"]
+    (domain,) = q.list(DOMAIN)
+    assert domain["sending"].startswith(
+        "Not sent: email sending is disabled on the Cloudflare account"
+    )
+    assert "Compute › Email Service › Email Sending" in domain["sending"]
+    said = q.view("settings")
+    (badge,) = said.find("badge")
+    assert badge["tone"] == "bad" and badge["text"] == "Not sent"
+    assert "Cloudflare said: Email sending disabled" in said.text()
+    # A later success replaces it.
+    q.fetch.add(
+        f"{CF}/accounts/{ACCT}/email/sending/send",
+        method="POST",
+        json=ok({"delivered": ["x"]}),
+    )
+    assert q.act("test-mail").ok
+    said = q.view("settings")
+    (badge,) = said.find("badge")
+    assert (
+        badge["tone"] == "good"
+        and badge["text"] == "Sent"
+        and "within two minutes" in said.text()
     )

@@ -826,6 +826,18 @@ def settings(ctx):
             ),
             ui.button("Disconnect", action="disconnect", tone="danger"),
         ),
+        # How the last test mail went, under the button, until the next one.
+        sending_line(str(domain["sending"])) if domain.get("sending") else [],
+    )
+
+
+def sending_line(said):
+    """ "Not sent: …" or "Sent to …" as a mark and the words beside it."""
+    failed = said.startswith("Not sent")
+    rest = said.split(": ", 1)[1] if failed and ": " in said else said
+    return ui.row(
+        ui.badge("Not sent" if failed else "Sent", tone="bad" if failed else "good"),
+        ui.text(rest, style="muted"),
     )
 
 
@@ -1009,8 +1021,43 @@ def test_mail(ctx):
             "If you can read this, mail goes out through Cloudflare and comes back in through the Worker.",
         )
     except MailError as exc:
-        return error(f"Not sent: {exc}")
-    return toast(f"Sent to {mine}; it should be in your inbox within two minutes")
+        # Said under the button, where it stays, in words that say what to do.
+        ctx.records.patch(DOMAIN, domain.id, sending=sending_said(str(exc)))
+        return redraw()
+    when = ctx.now().strftime("%H:%M")
+    ctx.records.patch(
+        DOMAIN,
+        domain.id,
+        sending=f"Sent to {mine} at {when}; it should be in your inbox within two minutes.",
+    )
+    return redraw()
+
+
+def sending_said(said):
+    """Cloudflare's refusal of a mail, as the administrator should read it."""
+    lowered = said.lower()
+    if "disabled" in lowered or "not enabled" in lowered:
+        return (
+            "Not sent: email sending is disabled on the Cloudflare account. Enable it at Cloudflare under "
+            "Compute › Email Service › Email Sending (it needs the Workers Paid plan), onboard the domain "
+            f"there, and try again. Cloudflare said: {said}"
+        )
+    if (
+        "onboard" in lowered
+        or "not verified" in lowered
+        or "dkim" in lowered
+        or "spf" in lowered
+    ):
+        return (
+            "Not sent: the domain is not onboarded for sending. At Cloudflare, under Compute › Email Service › "
+            f"Email Sending, add the domain and let Cloudflare set its records. Cloudflare said: {said}"
+        )
+    if "token" in lowered or "authentication" in lowered or "permission" in lowered:
+        return (
+            "Not sent: the token may not send. Give it Account › Email Sending › Edit, and connect again. "
+            f"Cloudflare said: {said}"
+        )
+    return f"Not sent: {said}"
 
 
 @action("disconnect")
