@@ -3,7 +3,7 @@
 # the tests' harness) and pytest; `cm quill test` uses it.
 [project]
 name = "quill-mail"
-version = "2.4.1"
+version = "2.4.2"
 requires-python = ">=3.12"
 dependencies = []
 

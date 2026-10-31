@@ -56,15 +56,15 @@ SETTINGS_ARE = "Administration › Quills › Mail"
 # What the Cloudflare token must be allowed, said on the settings page and on the
 # form that takes it: each right, and what Mail does with it.
 TOKEN_RIGHTS = """\
-At Cloudflare: *My Profile › API Tokens › Create Token › Custom token*, with these permissions and nothing more:
+At Cloudflare: *My Profile › API Tokens › Create Token › Custom token*. Under Permissions, add these five rows; under Resources, *All accounts* and *All zones* is simplest:
 
-- **Zone › Zone › Read** — to list your domains and pick one
-- **Zone › Email Routing Rules › Edit** — to turn Email Routing on and point the catch-all at the Worker
-- **Account › Workers Scripts › Edit** — to put the small Worker that takes the mail in into your account
-- **Account › Workers KV Storage › Edit** — to make the namespace the Worker puts mail in, and to read and clear it every minute
-- **Account › Email Sending › Edit** — to send mail from the domain
+- **Account › Workers Scripts › Edit** — the small Worker that takes the mail in
+- **Account › Workers KV Storage › Edit** — the namespace the Worker puts mail in, read and cleared every minute
+- **Account › Email Sending › Edit** — mail out from the domain
+- **Zone › Zone › Read** — to list your domains
+- **Zone › Email Routing Rules › Edit** — Email Routing on, the catch-all at the Worker
 
-Zone Resources: the zone of the domain (or all zones). Account Resources: the account it is in. Copy the token when it is shown; it is shown once, and kept here sealed."""
+If getting the five right is a fight, a token allowed more works just as well: Mail only ever does these five things with it. It can do more in your account if it leaks, so keep it to the five when you can. The Global API Key is not a token and does not work. Copy the token when it is shown; it is shown once, and kept here sealed."""
 SPLIT = re.compile(r"[,;\s]+")
 # How much of a mail's first line a row of the list shows.
 PREVIEW = 60
@@ -759,8 +759,11 @@ def settings(ctx):
                 style="muted",
             ),
             ui.text(
-                "First, at Cloudflare: the domain is on Cloudflare, and under Compute › Email Service › Email "
-                "Sending it is onboarded for sending (that needs the Workers Paid plan; receiving is free).",
+                "Receiving needs nothing at Cloudflare but the domain being there. Sending needs two things, both "
+                "in the dashboard under Compute › Email Service › Email Sending: the feature enabled on the account "
+                "(it needs the Workers Paid plan), and the domain onboarded — press Onboard Domain, pick it, Done; "
+                "Cloudflare puts the records on cf-bounce under the domain, and they are live within fifteen minutes. "
+                "Both can be done after connecting; the test mail below says which is missing.",
                 style="muted",
             ),
             ui.text("The token", style="subtitle"),
