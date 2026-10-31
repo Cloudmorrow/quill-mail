@@ -41,7 +41,10 @@ THREAD, MESSAGE, STATE, DOMAIN = (
     "mail.state",
     "mail.domain",
 )
-# Cloudflare's API, the Worker's name in the account, and how many mails one pull takes.
+# Cloudflare's API, what the Worker and its namespace are called in the account —
+# after this cloud, so two Cloudmorrow servers on one account, or a Worker of
+# the account's own that happens to share the stem, never overwrite each other —
+# and how many mails one pull takes.
 CF = "https://api.cloudflare.com/client/v4"
 WORKER = "cloudmorrow-mail"
 PULL_PAGE = 25
@@ -133,6 +136,13 @@ def cloud_host(ctx):
         "-."
     )
     return host or "cloud"
+
+
+def worker_name(ctx):
+    """The Worker's and the namespace's name in the Cloudflare account: cloudmorrow-mail-<this cloud>."""
+    return f"{WORKER}-{re.sub(r'[^a-z0-9-]+', '-', cloud_host(ctx)).strip('-')}"[
+        :63
+    ].rstrip("-")
 
 
 def the_domain(ctx):
@@ -900,6 +910,7 @@ def use_domain(ctx, zone):
 def set_up_zone(ctx, domain, zone):
     """Make *zone* the server's: Email Routing on, the namespace and the Worker in
     the account, the catch-all at the Worker. Redraws, or says what went wrong."""
+    worker = worker_name(ctx)
     try:
         token = token_of(ctx, domain)
         found = cf(ctx, token, f"/zones/{zone}") or {}
@@ -936,7 +947,7 @@ def set_up_zone(ctx, domain, zone):
                 (
                     str(ns.get("id") or "")
                     for ns in had
-                    if str(ns.get("title") or "") == WORKER
+                    if str(ns.get("title") or "") == worker
                 ),
                 "",
             )
@@ -946,7 +957,7 @@ def set_up_zone(ctx, domain, zone):
                 token,
                 f"/accounts/{account}/storage/kv/namespaces",
                 method="POST",
-                json_body={"title": WORKER},
+                json_body={"title": worker},
             )
             namespace = str((made or {}).get("id") or "")
             if not namespace:
@@ -977,7 +988,7 @@ def set_up_zone(ctx, domain, zone):
         cf(
             ctx,
             token,
-            f"/accounts/{account}/workers/scripts/{WORKER}",
+            f"/accounts/{account}/workers/scripts/{worker}",
             method="PUT",
             body=body,
             content_type=kind,
@@ -991,7 +1002,7 @@ def set_up_zone(ctx, domain, zone):
                 "name": "Cloudmorrow: every mail to the server",
                 "enabled": True,
                 "matchers": [{"type": "all"}],
-                "actions": [{"type": "worker", "value": [WORKER]}],
+                "actions": [{"type": "worker", "value": [worker]}],
             },
         )
     except MailError as exc:
@@ -1004,7 +1015,7 @@ def set_up_zone(ctx, domain, zone):
         zone=zone,
         account=account,
         namespace=namespace,
-        worker=WORKER,
+        worker=worker,
         routing="on",
         status=(
             "Ready: Email Routing is on and the Worker is in place"

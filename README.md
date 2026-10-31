@@ -97,12 +97,15 @@ the terminal `s` on Mail does):
    nobody, read only by Mail's own code. A token that sees one domain
    sets that domain up at once; with more, the domains are listed and
    **Use this domain** picks one. Mail then turns Email Routing on for the
-   zone, makes a KV namespace called `cloudmorrow-mail` in the account (or
-   finds the one it made before), puts a small Worker of the same name
-   there (`worker.js` in this repository: it takes every mail for the
-   domain and puts it in the namespace, as it came), and points the zone's
-   catch-all rule at the Worker. Everything is in your account, under
-   those names, where you can read and remove it.
+   zone, makes a KV namespace in the account (or finds the one it made
+   before), puts a small Worker there (`worker.js` in this repository: it
+   takes every mail for the domain and puts it in the namespace, as it
+   came), and points the zone's catch-all rule at the Worker. Both are
+   called `cloudmorrow-mail-<your cloud>` — `cloudmorrow-mail-bramcloud`
+   on a cloud called Bramcloud — so two Cloudmorrow servers on one account,
+   or a Worker of your own with a similar name, never overwrite each other.
+   Everything is in your account, under those names, where you can read
+   and remove it.
 2. From then on the server pulls the namespace once a minute and delivers
    each mail to the person it is addressed to: a thread of their own,
    unread, with a push. A mail to an address nobody has is dropped and

@@ -87,7 +87,7 @@ def set_up(q):
         json=ok({"id": NS}),
     )
     q.fetch.add(
-        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail",
+        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail-cloudmorrow",
         method="PUT",
         json=ok({"id": "x"}),
     )
@@ -231,18 +231,20 @@ def test_using_a_domain_turns_routing_on_and_puts_the_worker_in_place(q):
         domain["account"],
         domain["namespace"],
     ) == ("example.org", ZONE, ACCT, NS)
-    assert domain["routing"] == "on" and domain["worker"] == "cloudmorrow-mail"
+    assert (
+        domain["routing"] == "on" and domain["worker"] == "cloudmorrow-mail-cloudmorrow"
+    )
     upload = next(
         s
         for s in q.fetch.sent
-        if s["url"].endswith("/workers/scripts/cloudmorrow-mail")
+        if s["url"].endswith("/workers/scripts/cloudmorrow-mail-cloudmorrow")
     )
     assert (
         b"env.MAIL.put" in upload["body"] and b'"namespace_id": "ns1"' in upload["body"]
     )
     rule = next(s for s in q.fetch.sent if s["url"].endswith("/rules/catch_all"))
     assert json.loads(rule["body"])["actions"] == [
-        {"type": "worker", "value": ["cloudmorrow-mail"]}
+        {"type": "worker", "value": ["cloudmorrow-mail-cloudmorrow"]}
     ]
     text = q.view("settings").text()
     assert (
@@ -260,10 +262,10 @@ def test_disconnecting_forgets_the_domain(q):
 
 def test_setting_the_domain_up_again_says_so_with_the_time(q):
     set_up(q)
-    zone_stubs(q, namespaces=[(NS, "cloudmorrow-mail")])
+    zone_stubs(q, namespaces=[(NS, "cloudmorrow-mail-cloudmorrow")])
     q.fetch.add(f"{CF}/zones/{ZONE}/email/routing", json=ok({"enabled": True}))
     q.fetch.add(
-        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail",
+        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail-cloudmorrow",
         method="PUT",
         json=ok({"id": "x"}),
     )
@@ -284,10 +286,13 @@ def test_set_up_again_the_namespace_made_before_is_found_not_made_twice(q):
     assert q.act("disconnect").ok
     connect(q)
     q.fetch.sent.clear()
-    zone_stubs(q, namespaces=[("other", "something-else"), (NS, "cloudmorrow-mail")])
+    zone_stubs(
+        q,
+        namespaces=[("other", "something-else"), (NS, "cloudmorrow-mail-cloudmorrow")],
+    )
     q.fetch.add(f"{CF}/zones/{ZONE}/email/routing", json=ok({"enabled": True}))
     q.fetch.add(
-        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail",
+        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail-cloudmorrow",
         method="PUT",
         json=ok({"id": "x"}),
     )
@@ -335,7 +340,7 @@ def test_one_domain_to_see_is_set_up_the_moment_cloudflare_is_connected(q):
         json=ok({"id": NS}),
     )
     q.fetch.add(
-        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail",
+        f"{CF}/accounts/{ACCT}/workers/scripts/cloudmorrow-mail-cloudmorrow",
         method="PUT",
         json=ok({"id": "x"}),
     )

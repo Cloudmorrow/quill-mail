@@ -11,7 +11,7 @@
 [quill]
 id = "mail"
 name = "Mail"
-version = "2.4.2"
+version = "2.5.0"
 summary = "Email: an inbox for everybody on your server, name@your-cloud between you, and name@your-own-domain to the world through Cloudflare, set up once by an administrator."
 category = "communication"
 icon = "envelope"
