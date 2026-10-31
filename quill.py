@@ -306,7 +306,14 @@ def mail(ctx):
         main = one_thread(ctx, opened, folder)
     else:
         main = ui.empty("Choose a mail on the left, or send a new one.")
-    return ui.split(side, main, show="main" if opened else "side")
+    # With a mail open, the way back to the list is the screen's back button,
+    # as a page of a document has one; it goes to the folder it came from.
+    return ui.split(
+        side,
+        main,
+        show="main" if opened else "side",
+        back={"folder": folder} if opened else None,
+    )
 
 
 def whoami(ctx, domain):
@@ -372,6 +379,7 @@ def listed(ctx, folder, opened=""):
                 f"{name} · {unread_in[key]}" if unread_in[key] else name,
                 go="mail",
                 params={"folder": key},
+                current=key == folder,
             )
         )
     return ui.stack(
@@ -463,7 +471,6 @@ def one_thread(ctx, thread_id, folder):
                     tone="danger",
                 )
             )
-    buttons.append(ui.button("Back", go="mail", params={"folder": folder}))
     return ui.stack(
         *parts,
         ui.divider(),
