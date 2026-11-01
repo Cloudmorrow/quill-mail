@@ -109,8 +109,11 @@ the terminal `s` on Mail does):
    and remove it.
 2. From then on the server pulls the namespace once a minute and delivers
    each mail to the person it is addressed to: a thread of their own,
-   unread, with a push. A mail to an address nobody has is dropped and
-   said on the sheet. The postman — the job, run as the administrator —
+   unread, with a push. A mail to an address nobody has — a mistyped
+   name, an old address, `jimmi@` when the username is `bram` — goes to
+   the administrator who installed Mail, and the sheet's *Mail in* line
+   says which address it came to; mail is never thrown away. Each
+   person's address is their username at the domain, listed on the sheet. The postman — the job, run as the administrator —
    sees nothing of anybody's mail once delivered.
 3. **Send a test mail to me**: out through Cloudflare, back in through the
    Worker, in your inbox within two minutes if everything is in place. How
