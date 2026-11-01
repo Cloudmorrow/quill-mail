@@ -868,7 +868,8 @@ def settings(ctx):
             "Everybody here has an address on it; mail to it lands in their inbox within a minute, and what they "
             "write to an outside address goes from it. "
             + ", ".join(address_of(ctx, who, domain) for who in people)
-            + f". Inside the server they are still name@{cloud_host(ctx)}.",
+            + f". Inside the server they are still name@{cloud_host(ctx)}. Mail to any other address on "
+            + f"the domain goes to {ctx.user.username if ctx.user.admin else 'the administrator'} who installed Mail.",
             style="muted",
         ),
         ui.row(
@@ -1211,7 +1212,7 @@ def pull(ctx):
     domain = the_domain(ctx)
     if domain is None:
         return
-    delivered, dropped, notes = 0, [], []
+    delivered, strays, notes = 0, [], []
     try:
         token = token_of(ctx, domain)
         account, namespace = domain["account"], domain["namespace"]
@@ -1237,12 +1238,12 @@ def pull(ctx):
                 kept = json.loads(text or "{}")
                 who = deliver(ctx, domain, kept)
             except (ValueError, KeyError, TypeError) as exc:
+                # Left in the namespace, where it waits its two weeks: never thrown away.
                 notes.append(f"one mail could not be read: {exc}")
-                who = ""
-            if who:
-                delivered += 1
-            elif kept.get("to"):
-                dropped.append(str(kept["to"]))
+                continue
+            delivered += 1
+            if who != address_owner(ctx, domain, kept):
+                strays.append(str(kept.get("to") or "?"))
             cf(
                 ctx,
                 token,
@@ -1251,9 +1252,12 @@ def pull(ctx):
             )
     except MailError as exc:
         notes.append(f"the pull stopped: {exc}")
-    said = f"Delivered {delivered}" if delivered or not (dropped or notes) else ""
-    if dropped:
-        said += f"{'; ' if said else ''}dropped, for nobody here: {', '.join(sorted(set(dropped)))}"
+    said = f"Delivered {delivered}" if delivered or not notes else ""
+    if strays:
+        said += (
+            f"; to {', '.join(sorted(set(strays)))}, which nobody here has, "
+            f"so to you, {ctx.user.username}"
+        )
     if notes:
         said += f"{'; ' if said else ''}{'; '.join(notes)}"
     ctx.records.patch(
@@ -1265,16 +1269,20 @@ def pull(ctx):
     )
 
 
-def deliver(ctx, domain, kept):
-    """One mail as the Worker kept it, delivered to the person it is addressed to:
-    their username, or "" when nobody here has that address."""
-    envelope = str(kept.get("to") or "").strip().lower()
-    local, _, at = envelope.partition("@")
+def address_owner(ctx, domain, kept):
+    """Who on the server has the address a mail came to, or "" when nobody has."""
+    local, _, at = str(kept.get("to") or "").strip().lower().partition("@")
     if at != str(domain["domain"]).lower() or not local:
         return ""
-    people = {ctx.user.username, *ctx.people()}
-    if local not in people:
-        return ""
+    return local if local in {ctx.user.username, *ctx.people()} else ""
+
+
+def deliver(ctx, domain, kept):
+    """One mail as the Worker kept it, delivered to the person it is addressed to;
+    to an address nobody has, to the administrator the pull runs as — a mistyped
+    name or an old address is never thrown away. Says whose inbox it went to."""
+    envelope = str(kept.get("to") or "").strip().lower()
+    local = address_owner(ctx, domain, kept) or ctx.user.username
     raw = base64.b64decode(str(kept.get("raw") or ""))
     parsed = email.message_from_bytes(raw, policy=email.policy.default)
     subject = str(parsed.get("Subject") or "(no subject)").strip() or "(no subject)"

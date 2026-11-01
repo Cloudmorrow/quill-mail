@@ -436,16 +436,31 @@ def test_the_pull_delivers_a_mail_to_whoever_it_is_for_unread_and_the_administra
     )
 
 
-def test_a_mail_for_nobody_here_is_dropped_and_said(q):
+def test_a_mail_for_nobody_here_goes_to_the_administrator_and_is_said(q):
     set_up(q)
     in_the_box(q, "k2", a_mail("ada@example.net", "nobody@example.org", "Hi", "?"))
     q.run_job("pull")
     assert q.as_user("sam").list(THREAD) == []
-    assert "nobody@example.org" in q.list(DOMAIN)[0]["status"]
+    (thread,) = q.list(THREAD)
+    assert thread["subject"] == "Hi" and thread["address"] == "nobody@example.org"
+    (domain,) = q.list(DOMAIN)
+    assert domain["received"] == 1 and "nobody@example.org, which nobody here has" in domain["status"]
     assert any(
         s["method"] == "DELETE" and s["url"].endswith("/values/k2")
         for s in q.fetch.sent
     )
+
+
+def test_the_administrators_own_mail_lands_in_their_inbox_unread(q):
+    """The pull runs as the administrator: their own mail is delivered all the same."""
+    set_up(q)
+    in_the_box(
+        q, "k4", a_mail("ada@example.net", f"{q.user}@example.org", "Hello", "Hi!")
+    )
+    q.run_job("pull")
+    assert subjects(q) == ["● Hello"]
+    (domain,) = q.list(DOMAIN)
+    assert domain["received"] == 1 and "nobody here has" not in domain["status"]
 
 
 def test_an_answer_lands_in_the_conversation_and_a_reply_goes_out_from_my_address(q):
